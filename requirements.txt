@@ -1,0 +1,4 @@
+frida>=16
+websockets>=13
+cryptography>=42
+keyring>=24

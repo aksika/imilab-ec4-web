@@ -1,0 +1,36 @@
+# Local runtime data
+.env
+config.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Camera/session caches and tokens
+web/cameras.json
+web/sessions.json
+web/ec4_ui.xml
+camera_hosts.json
+*.log
+
+# Private media and captures
+captures/
+artifacts/
+apk/
+app/
+hooks/
+boot.png
+boot.xml
+emulator.log
+*.h265
+*.h264
+*.mp4
+*.png
+*.bin
+*.jsonl
+*.pcap
+
+# macOS
+.DS_Store

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EC4 Live — Settings</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .settings-wrap { max-width: 720px; margin: 40px auto; padding: 0 20px; }
+    .settings-card { background: #14181f; border: 1px solid #2a3140; border-radius: 14px; padding: 24px; }
+    .settings-card + .settings-card { margin-top: 18px; }
+    .settings-card h1 { margin: 0 0 6px; font-size: 22px; }
+    .settings-sub { color: #8b95a7; font-size: 13px; line-height: 1.5; margin-bottom: 22px; }
+    .field { margin-bottom: 14px; }
+    .field label { display: block; color: #aeb8c8; font-size: 12px; margin-bottom: 6px; }
+    .field input { width: 100%; box-sizing: border-box; background: #0d1117; color: #e6edf3;
+      border: 1px solid #30394a; border-radius: 8px; padding: 11px 12px; font-size: 14px; }
+    .field input:focus { outline: none; border-color: #4c8dff; }
+    .row { display: flex; gap: 10px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+    .status { margin-top: 18px; font-size: 13px; line-height: 1.5; color: #aeb8c8; white-space: pre-wrap; }
+    .status.ok { color: #5fd38d; }
+    .status.err { color: #ff7b72; }
+    .note { margin-top: 16px; font-size: 12px; color: #7d8798; line-height: 1.5; }
+    .back { display: inline-block; margin-bottom: 16px; color: #8b95a7; text-decoration: none; font-size: 13px; }
+    .back:hover { color: #e6edf3; }
+    .scan-meta { margin: 8px 0 14px; color: #7d8798; font-size: 12px; }
+    .scan-group { margin-top: 16px; font-size: 12px; color: #8b95a7; text-transform: uppercase; letter-spacing: .04em; }
+    .scan-host { display: flex; gap: 10px; align-items: center; justify-content: space-between;
+      padding: 10px 0; border-top: 1px solid #232a36; font-size: 13px; }
+    .scan-host:first-of-type { border-top: 0; }
+    .scan-host-main { min-width: 0; }
+    .scan-ip { color: #e6edf3; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .scan-detail { color: #7d8798; font-size: 11px; margin-top: 2px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .scan-badge { display: inline-block; margin-left: 8px; padding: 2px 6px; border-radius: 5px;
+      font-size: 10px; text-transform: uppercase; letter-spacing: .04em; vertical-align: 1px; }
+    .scan-badge.camera { color: #5fd38d; background: #15301f; }
+    .scan-badge.possible { color: #d8b45f; background: #332b14; }
+    .scan-assign { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    .scan-assign select { background: #0d1117; color: #e6edf3; border: 1px solid #30394a;
+      border-radius: 7px; padding: 7px 8px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="settings-wrap">
+    <a class="back" href="/">← Back to live view</a>
+
+    <div class="settings-card">
+      <h1>Imilab account</h1>
+      <div class="settings-sub">
+        Sign in to refresh camera access automatically. The password is stored
+        by the local helper in the macOS Keychain — not in a cookie or the page.
+      </div>
+      <form id="login-form" autocomplete="on">
+        <div class="field">
+          <label for="username">Email or phone</label>
+          <input id="username" name="username" type="text" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <div class="row">
+          <button class="btn" type="submit" id="login-btn">Sign in</button>
+          <button class="btn ghost" type="button" id="logout-btn">Sign out</button>
+        </div>
+      </form>
+      <div id="status" class="status">Checking session…</div>
+      <div class="note">
+        The browser can offer to save this password via its own password manager.
+        The helper stores it in Keychain so the camera session can be refreshed
+        even after the browser is closed.
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <h1>Cameras on the LAN</h1>
+      <div class="settings-sub">
+        Scan the local network for camera-like hosts. Known camera IP/MACs are
+        matched automatically; a new camera can be remembered from the results.
+      </div>
+      <div class="row" style="margin-top:0">
+        <button class="btn" type="button" id="scan-btn">Scan local network</button>
+        <span id="scan-status" class="status" style="margin-top:0"></span>
+      </div>
+      <div id="scan-results"></div>
+      <div class="note">
+        The scan is a local ARP/ping sweep plus TCP fingerprinting. It does not
+        use the cloud relay. Wake a battery camera first if it is asleep.
+      </div>
+    </div>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    function show(text, cls) {
+      const el = $("status");
+      el.textContent = text;
+      el.className = "status" + (cls ? " " + cls : "");
+    }
+    function scanStatus(text, cls) {
+      const el = $("scan-status");
+      el.textContent = text;
+      el.className = "status" + (cls ? " " + cls : "");
+      el.style.marginTop = "0";
+    }
+    async function refresh() {
+      try {
+        const r = await fetch("/api/auth/status", {cache: "no-store"});
+        const s = await r.json();
+        const bits = [];
+        if (s.username) bits.push("Account: " + s.username);
+        if (s.imi_expires) bits.push("Imilab token: " + new Date(s.imi_expires).toLocaleString());
+        bits.push("Camera token: " + (s.has_iot_token ? "active" : "missing"));
+        if (s.has_keychain) bits.push("Password: in Keychain");
+        show(bits.join("\n"), s.has_iot_token ? "ok" : "");
+      } catch (e) {
+        show("Cannot reach the local helper.", "err");
+      }
+    }
+    function badge(text, cls) {
+      const el = document.createElement("span");
+      el.className = "scan-badge " + cls;
+      el.textContent = text;
+      return el;
+    }
+    function hostRow(host, cameraNames) {
+      const row = document.createElement("div");
+      row.className = "scan-host";
+      const main = document.createElement("div");
+      main.className = "scan-host-main";
+      const ip = document.createElement("span");
+      ip.className = "scan-ip";
+      ip.textContent = host.ip;
+      main.appendChild(ip);
+      if (host.camera) main.appendChild(badge(host.camera, "camera"));
+      else if (host.likely_camera) main.appendChild(badge("possible camera", "possible"));
+      const detail = document.createElement("div");
+      detail.className = "scan-detail";
+      const parts = [];
+      if (host.mac) parts.push(host.mac);
+      if (host.ports && host.ports.length) parts.push("ports " + host.ports.join(", "));
+      detail.textContent = parts.join(" · ") || "no open ports";
+      main.appendChild(detail);
+      row.appendChild(main);
+
+      if (!host.camera && host.likely_camera && cameraNames.length) {
+        const assign = document.createElement("div");
+        assign.className = "scan-assign";
+        const select = document.createElement("select");
+        for (const name of cameraNames) {
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name;
+          select.appendChild(opt);
+        }
+        const button = document.createElement("button");
+        button.className = "btn ghost";
+        button.type = "button";
+        button.textContent = "Remember";
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try {
+            const r = await fetch("/api/scan/remember", {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({name: select.value, ip: host.ip, mac: host.mac || ""}),
+            });
+            const result = await r.json();
+            if (!r.ok || result.ok === false) throw new Error(result.error || "save failed");
+            scanStatus("Remembered " + select.value + " at " + host.ip + ".", "ok");
+            await runScan();
+          } catch (err) {
+            scanStatus(err.message || "Could not remember device.", "err");
+            button.disabled = false;
+          }
+        });
+        assign.appendChild(select);
+        assign.appendChild(button);
+        row.appendChild(assign);
+      }
+      return row;
+    }
+    async function runScan() {
+      const button = $("scan-btn");
+      const results = $("scan-results");
+      button.disabled = true;
+      button.textContent = "Scanning…";
+      scanStatus("Scanning the local subnet…");
+      results.textContent = "";
+      try {
+        const r = await fetch("/api/scan", {cache: "no-store"});
+        const data = await r.json();
+        if (!r.ok || data.ok === false) throw new Error(data.error || "scan failed");
+        scanStatus(data.cidr + " · " + data.hosts.length + " hosts · " + data.duration + "s", "ok");
+        const names = (data.configured || []).map((c) => c.name);
+        const configured = data.configured || [];
+        if (configured.length) {
+          const heading = document.createElement("div");
+          heading.className = "scan-group";
+          heading.textContent = "Configured cameras";
+          results.appendChild(heading);
+          for (const cam of configured) {
+            const row = document.createElement("div");
+            row.className = "scan-host";
+            const main = document.createElement("div");
+            main.className = "scan-host-main";
+            const name = document.createElement("span");
+            name.className = "scan-ip";
+            name.textContent = cam.name;
+            main.appendChild(name);
+            main.appendChild(badge(cam.seen ? "found" : "not found", cam.seen ? "camera" : "possible"));
+            const detail = document.createElement("div");
+            detail.className = "scan-detail";
+            detail.textContent = cam.known_ip ? "remembered at " + cam.known_ip : "no LAN address remembered";
+            main.appendChild(detail);
+            row.appendChild(main);
+            results.appendChild(row);
+          }
+        }
+        const visible = (data.hosts || []).filter(
+          (h) => h.camera || h.likely_camera || (h.ports && h.ports.length)
+        );
+        const heading = document.createElement("div");
+        heading.className = "scan-group";
+        heading.textContent = "Discovered hosts";
+        results.appendChild(heading);
+        if (!visible.length) {
+          const empty = document.createElement("div");
+          empty.className = "scan-meta";
+          empty.textContent = "No camera-like hosts found. Wake a camera and scan again.";
+          results.appendChild(empty);
+        } else {
+          for (const host of visible) results.appendChild(hostRow(host, names));
+        }
+      } catch (err) {
+        scanStatus(err.message || "Scan failed.", "err");
+      } finally {
+        button.disabled = false;
+        button.textContent = "Scan local network";
+      }
+    }
+    $("login-form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const username = $("username").value.trim();
+      const password = $("password").value;
+      $("login-btn").disabled = true;
+      show("Signing in…");
+      try {
+        const r = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({username, password}),
+        });
+        const s = await r.json();
+        if (!r.ok || s.ok === false) {
+          show(s.error || "Sign-in failed.", "err");
+        } else if (s.needs_verification) {
+          show("This account needs extra verification: " + (s.account || "") +
+               "\nUse the app once to complete the second step.", "err");
+        } else {
+          $("password").value = "";
+          show("Signed in. " + (s.iot_ok
+            ? "Camera token is active."
+            : "Camera token exchange failed: " + (s.iot_error || "unknown error")),
+            s.iot_ok ? "ok" : "err");
+          if (s.iot_ok) setTimeout(() => location.href = "/", 1200);
+        }
+      } catch (e) {
+        show("Sign-in request failed.", "err");
+      } finally {
+        $("login-btn").disabled = false;
+        refresh();
+      }
+    });
+    $("logout-btn").addEventListener("click", async () => {
+      await fetch("/api/auth/logout", {method: "POST"});
+      show("Signed out. Credentials removed from Keychain.", "ok");
+      setTimeout(refresh, 600);
+    });
+    $("scan-btn").addEventListener("click", runScan);
+    refresh();
+  </script>
+</body>
+</html>

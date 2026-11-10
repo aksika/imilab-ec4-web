@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EC4 Live</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span class="brand-title">EC4</span>
+      <span class="brand-sub">LIVE</span>
+    </div>
+    <div class="top-actions">
+      <span id="conn" class="conn"><i class="dot"></i><span>Connecting…</span></span>
+      <button id="btn-stop" class="btn ghost" type="button">Stop</button>
+      <button id="btn-refresh" class="btn ghost" type="button">Refresh</button>
+      <a class="btn ghost" href="/settings">Settings</a>
+      <div class="seg" role="group" aria-label="Layout">
+        <button id="mode-grid" class="seg-btn active" type="button">All cameras</button>
+        <button id="mode-single" class="seg-btn" type="button">Single view</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="camera-bar" id="camera-bar" aria-label="Cameras"></section>
+
+    <section class="stage">
+      <div id="grid" class="grid"></div>
+      <div id="empty" class="empty">
+        <div class="empty-icon">◉</div>
+        <div class="empty-title">Select a camera</div>
+        <div class="empty-sub">The live local Link Visual feed will appear here.</div>
+      </div>
+    </section>
+  </main>
+
+  <video id="player" class="player" muted autoplay playsinline></video>
+  <div id="toast" class="toast" role="status"></div>
+  <div id="busy" class="busy hidden"><div class="spinner"></div><span id="busy-text">Starting camera…</span></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
