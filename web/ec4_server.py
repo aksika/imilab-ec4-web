@@ -32,6 +32,7 @@ from ec4_capture import Capture, CaptureError, MSE_CODEC
 from ec4_direct import DirectCapture
 from ec4_mac import MacCapture
 import imi_login
+import imi_auth
 import ec4_config
 import ec4_scan
 
@@ -70,6 +71,10 @@ class AppState:
         self.adb_cameras: list[dict[str, Any]] = []
 
     def _load_camera_cache(self) -> tuple[list[str], dict[str, dict[str, Any]]]:
+        if self.direct_mode:
+            names = list(ec4_config.camera_ids())
+            if names:
+                return names, {}
         try:
             with open(CAMERA_CACHE, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
@@ -98,8 +103,16 @@ class AppState:
         if self.adb is None and not self.direct_mode:
             return {"ok": False, "error": self.adb_error or "adb not available", "cameras": []}
         if self.direct_mode:
-            # The direct Mac path has no Android device to scan; the camera
-            # names are fixed in KNOWN_CAMERAS / cameras.json.
+            # The direct path has no Android device to scan; reload names from
+            # the local config so Refresh picks up Add Camera changes.
+            configured = list(ec4_config.camera_ids())
+            if configured and configured != self.camera_names:
+                self.camera_names = configured
+                self.camera_layout = {
+                    key: value for key, value in self.camera_layout.items()
+                    if key in configured
+                }
+                self.adb_cameras = []
             force = False
 
         warning = ""
@@ -456,6 +469,17 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._json({"ok": False, "error": str(exc)}, 400)
             return
+        if path == "/api/cloud/cameras":
+            try:
+                imi_login.ensure_iot_token()
+                cameras = imi_auth.cloud_cameras()
+                configured = set(ec4_config.camera_ids().values())
+                for camera in cameras:
+                    camera["configured"] = camera["iot_id"] in configured
+                self._json({"ok": True, "cameras": cameras})
+            except Exception as exc:
+                self._json({"ok": False, "error": str(exc)}, 502)
+            return
         if path == "/api/health":
             self._json({
                 "ok": True,
@@ -494,6 +518,29 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": str(exc)}, 400)
                 return
             self._json(result)
+            return
+        if path == "/api/cameras/add":
+            body = self._read_json()
+            try:
+                added = ec4_config.add_camera(
+                    str(body.get("name", "")),
+                    str(body.get("iot_id", "")),
+                    str(body.get("ip", "")),
+                    str(body.get("mac", "")),
+                )
+                STATE.camera_names = list(ec4_config.camera_ids())
+                STATE.camera_layout = {}
+                STATE.adb_cameras = []
+                self._json({
+                    "ok": True,
+                    "camera": added,
+                    "cameras": [
+                        {"name": name, "iot_id": iot_id}
+                        for name, iot_id in ec4_config.camera_ids().items()
+                    ],
+                })
+            except Exception as exc:
+                self._json({"ok": False, "error": str(exc)}, 400)
             return
         if path == "/api/auth/login":
             body = self._read_json()

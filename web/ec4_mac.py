@@ -529,7 +529,7 @@ class _Session:
 
     def _wake_camera(self, camera: str) -> None:
         """Bring a battery camera out of deep sleep before starting P2P."""
-        iot_id = IOT_IDS.get(camera)
+        iot_id = ec4_config.camera_ids().get(camera) or IOT_IDS.get(camera)
         if not iot_id:
             return
         try:
@@ -584,7 +584,7 @@ class _Session:
         """Start the app's native player through Frida; no UI taps."""
         if self.player_bridge is None:
             return False
-        iot_id = IOT_IDS.get(camera)
+        iot_id = ec4_config.camera_ids().get(camera) or IOT_IDS.get(camera)
         if not iot_id:
             return False
         try:

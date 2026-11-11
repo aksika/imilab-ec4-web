@@ -548,6 +548,11 @@ gateway cannot see (`2459 会话 Id 不存在`); the EU host above is required.
 * `GET /api/app/storage/device/v1/allDevices` works with `X-IMILAB-TOKEN` +
   `X-IMILAB-IDENTITYID` and **no signature**.  The identity ID is
   `<IOT_IDENTITY_ID>` for this account.
+* `POST /api/app_device/devices` with body `{"pageNo":1,"pageSize":100}` and
+  headers `X-IMILAB-TOKEN`, `X-IMILAB-IDENTITYID`, and
+  `Authorization: <iotToken>` returns the account's full device list.  Each
+  camera entry contains the cloud-issued `iotId`, `productKey`, `nickName`,
+  and `categoryKey`; this is where the Add Camera form gets the IoT ID.
 * Other Imilab gateway endpoints may still require the white-box
   `X-IMILAB-SIGN`; test each endpoint.
 

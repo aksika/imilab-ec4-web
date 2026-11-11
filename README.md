@@ -94,6 +94,14 @@ python tools/imi_login.py --bootstrap
 python tools/imi_login.py --refresh
 ```
 
+### Adding a camera
+
+Open `/settings` → **Add a camera**.  The camera list is fetched from the
+Imilab cloud; selecting one fills in its **name and IoT ID** automatically
+(the IoT ID is an Alibaba cloud device identity, not a LAN address).  You can
+attach the LAN IP/MAC from a scan result, then click **Add camera**.  The new
+camera appears on the main page after you click **Refresh**.
+
 ### LAN camera scan
 
 Open `/settings` and click **Scan local network**.  The scanner:
@@ -104,10 +112,10 @@ Open `/settings` and click **Scan local network**.  The scanner:
 4. Marks other camera-like hosts (`:8000`, without `:80/:443/:1883`) as
    possible cameras.
 
-For a new camera, choose its configured name and click **Remember** in the
-scan result.  The mapping is saved outside the repository in
-`~/.ec4/camera_hosts.json` (mode 0600).  The scan is local-only; it does not
-use the cloud relay.
+For an existing configured camera, choose its name and click **Remember** in
+the scan result.  **Use IP** fills the LAN fields in the Add Camera form.  The
+mapping is saved outside the repository in `~/.ec4/camera_hosts.json` (mode
+0600).  The scan is local-only; it does not use the cloud relay.
 
 ## Media path
 

@@ -27,7 +27,6 @@ from ec4_capture import CaptureError, Encoder  # noqa: E402
 from ec4_mac import _Receiver, _idr_start  # noqa: E402
 
 VIEWER = os.path.join(TOOLS, "rtmp_private_viewer.py")
-IOT_IDS = ec4_config.camera_ids()
 
 
 class DirectCapture:
@@ -178,7 +177,7 @@ class DirectCapture:
             ):
                 return self.status()
             self._stop_stream()
-            iot_id = IOT_IDS.get(name) or direct_signal.IOT_ID
+            iot_id = ec4_config.camera_ids().get(name) or direct_signal.IOT_ID
             try:
                 imi_login.ensure_iot_token()
             except Exception as exc:

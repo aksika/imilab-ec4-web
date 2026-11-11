@@ -11,12 +11,30 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 DEFAULT_PATH = Path.home() / ".ec4" / "config.json"
+
+
+def _path() -> Path:
+    return Path(os.environ.get("EC4_CONFIG", str(DEFAULT_PATH))).expanduser()
+
+
+def _write_config(data: dict[str, Any]) -> None:
+    path = _path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+    try:
+        os.chmod(tmp, 0o600)
+    except Exception:
+        pass
+    os.replace(tmp, path)
 
 
 def load() -> dict[str, Any]:
@@ -122,8 +140,61 @@ def remember_host(name: str, ip: str, mac: str = "") -> dict[str, dict[str, str]
     mapping = host_map()
     mapping[name] = {
         "ip": ip,
-        "mac": mac.lower(),
+        "mac": _norm_mac(mac),
         "last_seen": datetime.now().isoformat(timespec="seconds"),
     }
     save_host_map(mapping)
     return mapping
+
+
+def _norm_mac(mac: str) -> str:
+    parts = (mac or "").lower().split(":")
+    if len(parts) != 6:
+        return (mac or "").lower()
+    try:
+        return ":".join(f"{int(part, 16):02x}" for part in parts)
+    except ValueError:
+        return (mac or "").lower()
+
+
+def add_camera(name: str, iot_id: str, ip: str = "", mac: str = "") -> dict:
+    """Add a camera to the local config; IoT ID comes from the cloud list."""
+    name = (name or "").strip()
+    iot_id = (iot_id or "").strip()
+    if not name:
+        raise ValueError("camera name is required")
+    if not iot_id:
+        raise ValueError("IoT ID is required")
+    if len(name) > 80:
+        raise ValueError("camera name is too long")
+    if len(iot_id) > 80 or not re.fullmatch(r"[A-Za-z0-9_-]+", iot_id):
+        raise ValueError("invalid IoT ID")
+
+    data = load()
+    cameras = data.get("cameras")
+    if isinstance(cameras, list):
+        converted: dict[str, str] = {}
+        for index, item in enumerate(cameras, 1):
+            if isinstance(item, dict) and item.get("iot_id"):
+                converted[str(item.get("name") or f"CAM{index}")] = str(item["iot_id"])
+            elif isinstance(item, str):
+                converted[f"CAM{index}"] = item
+        cameras = converted
+    if not isinstance(cameras, dict):
+        cameras = {}
+    existing = camera_ids()
+    if name in existing:
+        raise ValueError("a camera with that name already exists")
+    if iot_id in existing.values():
+        raise ValueError("that camera is already configured")
+
+    if ip:
+        import ipaddress
+        if not ipaddress.ip_address(ip).is_private:
+            raise ValueError("camera IP must be a private address")
+    cameras[name] = iot_id
+    data["cameras"] = cameras
+    _write_config(data)
+    if ip:
+        remember_host(name, ip, mac)
+    return {"name": name, "iot_id": iot_id, "ip": ip, "mac": _norm_mac(mac)}

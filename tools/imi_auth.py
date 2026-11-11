@@ -23,6 +23,7 @@ import urllib.parse
 import urllib.request
 
 import ec4_config
+import iot_auth
 
 ADB = os.environ.get("EC4_ADB") or shutil.which("adb") or "adb"
 PREFS = "/data/data/com.chuangmi.imihome/shared_prefs/IMI_sp_key_Name.xml"
@@ -96,6 +97,18 @@ def _request(url: str, headers: dict) -> tuple[int, str]:
         return e.code, e.read().decode("utf-8", "replace")
 
 
+def _request_post(url: str, headers: dict, payload: dict) -> tuple[int, str]:
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    h = dict(headers)
+    h["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=raw, headers=h, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+
+
 def refresh() -> dict:
     data = load_tokens()
     rt = data["refresh_token"]
@@ -132,9 +145,60 @@ def devices() -> dict:
     headers = auth_headers()
     if identity:
         headers["X-IMILAB-IDENTITYID"] = identity
-    url = "https://gateway.eu-east.imilab.com/api/app/storage/device/v1/allDevices"
-    status, body = _request(url, headers)
-    return {"status": status, "body": body[:4000]}
+    # The cloud device list is an "Ali" endpoint: it needs the raw Alibaba
+    # IoT token in Authorization, not the Imilab token.
+    ali_token = iot_auth.load_creds().get("iotToken") or ""
+    if ali_token:
+        headers["Authorization"] = ali_token
+    url = "https://gateway.eu-east.imilab.com/api/app_device/devices"
+    status, body = _request_post(url, headers, {"pageNo": 1, "pageSize": 100})
+    return {"status": status, "body": body[:20000]}
+
+
+def device_list() -> list[dict]:
+    """Return the account's cloud devices (including iotId and product info)."""
+    result = devices()
+    if result["status"] != 200:
+        raise RuntimeError(f"device list HTTP {result['status']}")
+    try:
+        payload = json.loads(result["body"])
+    except ValueError as exc:
+        raise RuntimeError("device list returned invalid JSON") from exc
+    items = payload.get("result")
+    if isinstance(items, dict):
+        items = items.get("devices") or items.get("list") or []
+    if not isinstance(items, list):
+        raise RuntimeError(
+            payload.get("message") or "device list returned no devices"
+        )
+    return [item for item in items if isinstance(item, dict) and item.get("iotId")]
+
+
+def cloud_cameras() -> list[dict]:
+    """Return camera-like cloud devices with a stable iotId."""
+    cameras: list[dict] = []
+    for item in device_list():
+        category = str(item.get("categoryKey") or "").lower()
+        product = str(item.get("productName") or "")
+        if not (
+            category in ("camera", "doorbell")
+            or "EC4" in product.upper()
+            or "CAMERA" in product.upper()
+        ):
+            continue
+        cameras.append({
+            "iot_id": item.get("iotId"),
+            "name": item.get("nickName") or item.get("deviceName") or item.get("iotId"),
+            "device_name": item.get("deviceName") or "",
+            "product_name": product,
+            "product_key": item.get("productKey") or "",
+            "category": category,
+            "status": item.get("status"),
+            "net_type": item.get("netType") or "",
+            "parent_iot_id": item.get("parentIotId") or "",
+        })
+    cameras.sort(key=lambda cam: (cam["name"] or "").lower())
+    return cameras
 
 
 if __name__ == "__main__":
