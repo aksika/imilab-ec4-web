@@ -34,8 +34,6 @@ import time
 from collections import deque
 from queue import Queue, Empty
 
-import frida
-
 WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 TOOLS_DIR = os.path.join(WEB_DIR, "..", "tools")
 sys.path.insert(0, TOOLS_DIR)
@@ -500,6 +498,7 @@ class _Session:
     def _start_app(self) -> None:
         if self.app_alive:
             return
+        import frida  # legacy app/emulator path only
         subprocess.run([ADB, "shell", "am", "force-stop", APP], check=False)
         time.sleep(1)
         dev = frida.get_usb_device(timeout=10)

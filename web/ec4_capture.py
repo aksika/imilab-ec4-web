@@ -21,8 +21,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-import frida
-
 APP_NAMES = ("imilab Home", "com.chuangmi.imihome")
 
 FFMPEG = shutil.which("ffmpeg")
@@ -378,6 +376,7 @@ class Capture:
     # -- connection ---------------------------------------------------------
     @staticmethod
     def _device():
+        import frida  # legacy app/emulator path only
         try:
             return frida.get_usb_device(timeout=4)
         except Exception:

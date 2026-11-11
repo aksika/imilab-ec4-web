@@ -67,8 +67,12 @@ The Imilab password is stored in the **macOS Keychain** (service
 The launcher creates `.venv` and installs:
 
 ```text
-frida websockets cryptography keyring
+websockets cryptography keyring
 ```
+
+Frida is **not** required by the direct Mac path.  Only the legacy
+app/emulator fallback, if explicitly enabled, needs the optional `frida`
+package and Frida server.
 
 ## Run
 
