@@ -37,6 +37,11 @@ Fill in the values for your installation:
 These values are not distributed with the project.  You must supply the
 credentials used by your own camera installation.
 
+> **The Settings form only handles the Imilab account username/password.**
+> It cannot create the app identity or IoT gateway credentials.  Those must
+> already be present in `~/.ec4/config.json` before the first sign-in; otherwise
+> the helper cannot sign the SDK login or call the IoT cloud APIs.
+
 Tokens are written to:
 
 ```text
