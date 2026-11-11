@@ -17,7 +17,8 @@ Frida is not required for the direct path.
 
 ## 2. Local configuration
 
-The repository contains **no credentials**.  They must live outside it:
+The repository ships **app-level client defaults** in `config.example.json`.
+Account credentials, tokens, and camera IDs must live outside it:
 
 ```sh
 mkdir -p ~/.ec4
@@ -27,20 +28,22 @@ chmod 600 ~/.ec4/config.json
 
 Fill in the values for your installation:
 
-* `imi.app_id`, `imi.app_secret` — Imilab application identity.
+* `imi.app_id`, `imi.app_secret` — Imilab application identity.  The example
+  includes the EU app-level defaults.
 * `imi.identity_id` — Alibaba identity (optional; the helper fills it).
-* `iot.app_key`, `iot.xca_key` — Alibaba IoT gateway credentials.
+* `iot.app_key`, `iot.xca_key` — Alibaba IoT gateway credentials.  The example
+  includes the EU app-level defaults.
 * `iot.host` — regional IoT API host.
 * `openaccount.host` — matching regional OpenAccount host.
-* `cameras` — display name → camera `iotId`.
+* `cameras` — display name → camera `iotId`; starts empty and is filled by
+  **Add a camera** in Settings.
 
-These values are not distributed with the project.  You must supply the
-credentials used by your own camera installation.
+The app-level defaults are usable for the same app build/region.  Account
+tokens, identity IDs, camera IDs, and LAN data are not included.
 
 > **The Settings form only handles the Imilab account username/password.**
-> It cannot create the app identity or IoT gateway credentials.  Those must
-> already be present in `~/.ec4/config.json` before the first sign-in; otherwise
-> the helper cannot sign the SDK login or call the IoT cloud APIs.
+> It does not create app identity or IoT gateway credentials.  The included
+> defaults cover those; user-specific values are created after sign-in.
 
 Tokens are written to:
 

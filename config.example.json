@@ -1,19 +1,16 @@
 {
   "imi": {
-    "app_id": "YOUR_IMILAB_APP_ID",
-    "app_secret": "YOUR_IMILAB_APP_SECRET",
+    "app_id": "LKYBW2S1BSQ2LBM1OPWBJ",
+    "app_secret": "BKZgHMZWXqyKCAM0C4tKo2RJxySaPXDe",
     "identity_id": ""
   },
   "iot": {
-    "app_key": "YOUR_IOT_APP_KEY",
-    "xca_key": "YOUR_IOT_XCA_KEY",
+    "app_key": "27656864",
+    "xca_key": "081d8f1dce6a8b8f10c3374c345b8696",
     "host": "eu-central-1.api-iot.aliyuncs.com"
   },
   "openaccount": {
     "host": "living-account.eu-central-1.aliyuncs.com"
   },
-  "cameras": {
-    "CAM1": "YOUR_CAMERA_1_IOT_ID",
-    "CAM2": "YOUR_CAMERA_2_IOT_ID"
-  }
+  "cameras": {}
 }

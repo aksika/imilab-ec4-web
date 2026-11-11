@@ -2,6 +2,15 @@
 set -e
 cd "$(dirname "$0")"
 
+# First run: seed the external config with the app-level defaults.
+CONFIG="$HOME/.ec4/config.json"
+if [ ! -f "$CONFIG" ]; then
+  mkdir -p "$HOME/.ec4"
+  cp config.example.json "$CONFIG"
+  chmod 600 "$CONFIG"
+  echo "Created $CONFIG from config.example.json"
+fi
+
 if [ ! -x .venv/bin/python ]; then
   echo "Creating .venv and installing dependencies…"
   python3 -m venv .venv

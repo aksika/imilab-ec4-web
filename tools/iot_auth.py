@@ -1,8 +1,9 @@
 """Alibaba IoT auth and stream query without the app.
 
 The Alibaba Cloud API Gateway x-ca signature used by this app is HMAC-SHA1
-with the per-install seed key below.  It was recovered from the SG native
-signer via a memory trace and verified against captured signatures.
+with the app-level seed key.  It was recovered from the SG native signer via a
+memory trace and verified against captured signatures; portability across
+different app builds/installs is not independently verified.
 
 Sensitive: keep ~/.ec4/iot_creds.json (0600) private.
 """

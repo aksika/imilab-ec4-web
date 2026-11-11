@@ -272,6 +272,13 @@ def _save_iot(data: dict) -> dict:
     if not creds["iotToken"] or not creds["identityId"]:
         raise RuntimeError("IoT exchange returned no credentials")
     iot_auth.save_creds(creds)
+    try:
+        tokens = imi_auth.load_tokens()
+        if tokens and tokens.get("identityId") != creds["identityId"]:
+            tokens["identityId"] = creds["identityId"]
+            imi_auth.save_tokens(tokens)
+    except Exception:
+        pass
     return creds
 
 

@@ -34,10 +34,10 @@ DEFAULT_IDENTITY = str(ec4_config.get("imi", "identity_id", ""))
 
 def load_tokens() -> dict:
     if not os.path.exists(TOKEN_FILE):
-        raise RuntimeError("no saved Imilab token; sign in through /settings")
+        return {}
     with open(TOKEN_FILE, "r", encoding="utf-8") as fh:
         data = json.load(fh)
-    if not data.get("identityId"):
+    if not data.get("identityId") and DEFAULT_IDENTITY:
         data["identityId"] = DEFAULT_IDENTITY
         save_tokens(data)
     return data
@@ -91,7 +91,9 @@ def _request_post(url: str, headers: dict, payload: dict) -> tuple[int, str]:
 
 def refresh() -> dict:
     data = load_tokens()
-    rt = data["refresh_token"]
+    rt = data.get("refresh_token") or ""
+    if not rt:
+        raise RuntimeError("no saved Imilab refresh token; sign in through /settings")
     last = None
     for host in BASE_HOSTS:
         url = f"https://{host}/oauth/sdk/refreshToken?refreshToken=" + urllib.parse.quote(rt)

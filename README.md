@@ -7,10 +7,10 @@ serves H.264 fragmented MP4 to the browser through Media Source Extensions.
 
 > **Unofficial project.** Not affiliated with or endorsed by IMILAB. Use only
 > with cameras and accounts you own. The helper talks to private/undocumented
-> services that may change or break; there is no warranty. You must supply
-> your own local configuration — no app keys, tokens, or account data are
-> included in this repository. Compliance with IMILAB's terms is your
-> responsibility.
+> services that may change or break; there is no warranty. The repository
+> includes app-level client defaults in `config.example.json`; no account
+> tokens, camera IDs, or user data are included. Compliance with IMILAB's terms
+> is your responsibility.
 
 There is **no Android emulator and no app requirement at runtime**, and media
 does not go through the cloud relay.
@@ -35,8 +35,9 @@ does not go through the cloud relay.
 
 ## Configuration (required)
 
-The repository intentionally contains **no app keys, account IDs, camera IDs,
-LAN addresses, tokens, or passwords**.  They live outside the repository.
+`config.example.json` contains the **app-level client defaults** for the EU
+region.  Account tokens, camera IDs, and user data are never included.  The
+launcher copies this file to `~/.ec4/config.json` on first run.
 
 ```sh
 mkdir -p ~/.ec4
@@ -44,15 +45,15 @@ cp config.example.json ~/.ec4/config.json
 chmod 600 ~/.ec4/config.json
 ```
 
-Fill in:
+Defaults included:
 
-* `imi.app_id`, `imi.app_secret` — the Imilab application identity used by the
-  login exchange.
-* `imi.identity_id` — the Alibaba identity associated with the Imilab account
-  (optional; the helper fills it after login).
-* `iot.app_key`, `iot.xca_key` — the Alibaba IoT gateway credentials.
-* `iot.host` — the regional IoT API host.
-* `openaccount.host` — the matching regional OpenAccount host.
+* `imi.app_id`, `imi.app_secret` — Imilab application identity.
+* `iot.app_key`, `iot.xca_key` — Alibaba IoT gateway credentials.
+* `iot.host`, `openaccount.host` — EU regional endpoints.
+
+You only need to change the host fields if your account is in another region.
+`imi.identity_id` is optional; the helper fills it after login.  Cameras are
+added from the cloud list in `/settings`; `cameras` starts empty.
 * `cameras` — display name → camera `iotId`.
 
 The helper stores its runtime state outside the repository as well:
@@ -153,7 +154,8 @@ loops on `stdin.write()` so a large keyframe is never partially written.
 
 ## Security
 
-* No credentials or private identifiers are committed.
+* No account tokens, camera IDs, or user data are committed; app-level client
+  defaults are in `config.example.json`.
 * `.gitignore` excludes local caches, sessions, logs, captures, media, and the
   virtualenv.
 * The browser receives only a local `ec4_session` HttpOnly cookie for the

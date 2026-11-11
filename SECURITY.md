@@ -1,8 +1,9 @@
 # Security
 
-This project is a local helper for cameras on your own network.  It does not
-ship with credentials and does not need a cloud account password in the
-repository.
+This project is a local helper for cameras on your own network.  It ships
+app-level client defaults in `config.example.json`, but no account
+credentials, tokens, or camera IDs.  It does not need a cloud account password
+in the repository.
 
 ## Never commit
 

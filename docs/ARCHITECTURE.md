@@ -44,4 +44,5 @@ invent an `iotId`.
 * One camera stream is opened at a time.
 * The camera list and identity mappings are stored outside the repository in
   `~/.ec4/config.json` and `~/.ec4/camera_hosts.json`.
-* No app/cloud credentials are included in this repository.
+* App-level client defaults live in `config.example.json`; account tokens,
+  identity IDs, camera IDs, and LAN data are not included.
