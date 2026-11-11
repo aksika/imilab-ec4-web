@@ -21,8 +21,8 @@ does not go through the cloud relay.
 |---|---|
 | `web/ec4_server.py` | local HTTP server, camera picker, `/stream/direct` |
 | `web/ec4_direct.py` | pure-Mac capture backend (relay viewer + RTP + ffmpeg) |
-| `web/ec4_capture.py` | ffmpeg H.265 → H.264 fMP4 encoder |
-| `web/ec4_mac.py` | RTP receiver, keyframe assembly, legacy app fallback |
+| `web/ec4_encoder.py` | ffmpeg H.265 → H.264 fMP4 encoder |
+| `web/ec4_rtp.py` | RTP receiver, keyframe assembly, H.265 access units |
 | `web/static/` | browser UI (MSE player, camera grid, settings) |
 | `tools/direct_signal.py` | stream query, relay trigger, signal/ICE negotiation |
 | `tools/rtmp_private_viewer.py` | private `glive` relay viewer |
@@ -79,9 +79,8 @@ The launcher creates `.venv` and installs:
 websockets cryptography keyring
 ```
 
-Frida is **not** required by the direct Mac path.  Only the legacy
-app/emulator fallback, if explicitly enabled, needs the optional `frida`
-package and Frida server.
+Frida is **not** required, and the legacy Android app/emulator code is not
+part of this repository.  The public runtime is the direct Mac path only.
 
 ## Run
 

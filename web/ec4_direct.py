@@ -1,9 +1,8 @@
 """Pure-Mac capture backend: no Android app and no emulator.
 
-This is the website-facing equivalent of `MacCapture`, but it obtains the
-camera session with the app-free stream query, opens the camera with the
-private `glive` relay viewer, negotiates signal/ICE from the Mac, and feeds
-RTP to the normal ffmpeg encoder.
+It obtains the camera session with the app-free stream query, opens the camera
+with the private `glive` relay viewer, negotiates signal/ICE from the Mac, and
+feeds RTP to the normal ffmpeg encoder.
 """
 from __future__ import annotations
 
@@ -20,11 +19,11 @@ TOOLS = os.path.join(ROOT, "tools")
 sys.path.insert(0, TOOLS)
 
 import direct_signal  # noqa: E402
-import force_iframe_test as fit  # noqa: E402
+import ec4_stun as fit  # noqa: E402
 import imi_login  # noqa: E402
 import ec4_config  # noqa: E402
-from ec4_capture import CaptureError, Encoder  # noqa: E402
-from ec4_mac import _Receiver, _idr_start  # noqa: E402
+from ec4_encoder import CaptureError, Encoder  # noqa: E402
+from ec4_rtp import _Receiver, _idr_start  # noqa: E402
 
 VIEWER = os.path.join(TOOLS, "rtmp_private_viewer.py")
 
@@ -32,8 +31,7 @@ VIEWER = os.path.join(TOOLS, "rtmp_private_viewer.py")
 class DirectCapture:
     """One camera at a time, pure Mac; switching stops and reopens."""
 
-    def __init__(self, adb=None, log=print) -> None:
-        self.adb = adb
+    def __init__(self, log=print) -> None:
         self.log = log
         self.lock = threading.RLock()
         self.selected_camera = None

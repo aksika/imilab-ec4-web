@@ -562,11 +562,11 @@ async function pollStatus() {
     const st = await api("/api/status");
     state.status = st;
     if (!st.connected) {
-      setConn("Emulator offline", "offline");
+      setConn("Camera offline", "offline");
     } else if (state.streamState === "live") {
       setConn("Live · local P2P", "live");
     } else {
-      setConn("Emulator connected", "");
+      setConn("Ready", "");
     }
     if (st.selected_camera && st.selected_camera !== state.activeName) {
       state.activeName = st.selected_camera;

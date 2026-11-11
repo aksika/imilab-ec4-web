@@ -27,10 +27,8 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional
 
-from ec4_adb import AdbController, AdbError
-from ec4_capture import Capture, CaptureError, MSE_CODEC
 from ec4_direct import DirectCapture
-from ec4_mac import MacCapture
+from ec4_encoder import CaptureError, MSE_CODEC
 import imi_login
 import imi_auth
 import ec4_config
@@ -38,60 +36,17 @@ import ec4_scan
 
 WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(WEB_DIR, "static")
-CAMERA_CACHE = os.path.join(WEB_DIR, "cameras.json")
 DEFAULT_PORT = int(os.environ.get("EC4_PORT", "8765"))
-
-# Camera display names configured in ~/.ec4/config.json.  The private values
-# (iotIds) live there, not in the repository.
-KNOWN_CAMERAS = list(ec4_config.camera_ids())
 
 
 class AppState:
     def __init__(self) -> None:
         self.logs: collections.deque[str] = collections.deque(maxlen=300)
         self.select_lock = threading.Lock()
-        self.scan_lock = threading.Lock()
-        self.mac_mode = os.environ.get("EC4_MAC", "1") == "1"
-        self.direct_mode = os.environ.get("EC4_DIRECT", "1") == "1"
-        try:
-            self.adb: Optional[AdbController] = AdbController(log=self.log)
-            self.adb_error = ""
-        except Exception as exc:
-            self.adb = None
-            self.adb_error = str(exc)
-        if self.direct_mode:
-            self.capture = DirectCapture(log=self.log)
-        elif self.mac_mode:
-            self.capture = MacCapture(self.adb, log=self.log)
-        else:
-            self.capture = Capture(log=self.log)
+        self.capture = DirectCapture(log=self.log)
         self.started_at = time.time()
         self.session_token = ""
-        self.camera_names, self.camera_layout = self._load_camera_cache()
-        self.adb_cameras: list[dict[str, Any]] = []
-
-    def _load_camera_cache(self) -> tuple[list[str], dict[str, dict[str, Any]]]:
-        if self.direct_mode:
-            names = list(ec4_config.camera_ids())
-            if names:
-                return names, {}
-        try:
-            with open(CAMERA_CACHE, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            names = data.get("cameras", [])
-            layout = data.get("layout", {})
-            if isinstance(names, list) and names and all(isinstance(n, str) for n in names):
-                return names, layout if isinstance(layout, dict) else {}
-        except Exception:
-            pass
-        return list(KNOWN_CAMERAS), {}
-
-    def _save_camera_cache(self, names: list[str], layout: dict[str, dict[str, Any]]) -> None:
-        try:
-            with open(CAMERA_CACHE, "w", encoding="utf-8") as fh:
-                json.dump({"cameras": names, "layout": layout}, fh, indent=2)
-        except Exception:
-            pass
+        self.camera_names = list(ec4_config.camera_ids())
 
     def log(self, message: str) -> None:
         line = time.strftime("%H:%M:%S ") + str(message)
@@ -100,225 +55,44 @@ class AppState:
 
     # -- cameras ------------------------------------------------------------
     def cameras(self, force: bool = False) -> dict[str, Any]:
-        if self.adb is None and not self.direct_mode:
-            return {"ok": False, "error": self.adb_error or "adb not available", "cameras": []}
-        if self.direct_mode:
-            # The direct path has no Android device to scan; reload names from
-            # the local config so Refresh picks up Add Camera changes.
-            configured = list(ec4_config.camera_ids())
-            if configured and configured != self.camera_names:
-                self.camera_names = configured
-                self.camera_layout = {
-                    key: value for key, value in self.camera_layout.items()
-                    if key in configured
-                }
-                self.adb_cameras = []
-            force = False
-
-        warning = ""
-        live = self.capture.encoder is not None and not self.capture.encoder.closed
-        if force and live:
-            warning = "Stop the live view before rescanning the camera list."
-            force = False
-
-        if force:
-            with self.scan_lock:
-                try:
-                    scanned = self.adb.cameras(force=True)
-                except Exception as exc:
-                    return {"ok": False, "error": str(exc), "cameras": []}
-            if scanned:
-                names = [cam["name"] for cam in scanned]
-                for known in KNOWN_CAMERAS:
-                    if known not in names:
-                        names.append(known)
-                self.camera_names = names
-                self.adb_cameras = scanned
-                for missing in KNOWN_CAMERAS:
-                    if not any(cam["name"] == missing for cam in self.adb_cameras):
-                        self.adb_cameras.append(
-                            {
-                                "name": missing,
-                                "playing": False,
-                                "visible": True,
-                                "bounds": None,
-                                "play": None,
-                                "pause": None,
-                            }
-                        )
-                layout: dict[str, dict[str, Any]] = {}
-                for cam in self.adb_cameras:
-                    if cam.get("page") is not None and cam.get("play"):
-                        layout[cam["name"]] = {"page": cam["page"], "play": cam["play"]}
-                self.camera_layout = layout
-                self._save_camera_cache(self.camera_names, layout)
-                self.log(
-                    "camera list: "
-                    + ", ".join(self.camera_names)
-                    + (" | fast layout: " + ", ".join(sorted(layout)) if layout else "")
-                )
-            else:
-                warning = "Could not read the camera list; using the cached list."
-
-        if not self.adb_cameras:
-            names = self.camera_names or KNOWN_CAMERAS
-            self.adb_cameras = [
-                {
-                    "name": name,
-                    "playing": False,
-                    "visible": True,
-                    "bounds": None,
-                    "play": None,
-                    "pause": None,
-                }
-                for name in names
-            ]
-
-        playing = {cam["name"] for cam in self.adb_cameras if cam.get("playing")}
-        if self.capture.selected_camera:
-            playing.add(self.capture.selected_camera)
-        out = [
+        names = list(ec4_config.camera_ids()) or self.camera_names
+        self.camera_names = names
+        active = self.capture.selected_camera
+        cameras = [
             {
-                "name": cam["name"],
-                "playing": cam["name"] in playing,
-                "visible": bool(cam.get("visible", True)),
-                "active": cam["name"] == self.capture.selected_camera,
-                "linkvisual": cam["name"] in KNOWN_CAMERAS,
+                "name": name,
+                "playing": name == active,
+                "visible": True,
+                "active": name == active,
+                "linkvisual": True,
             }
-            for cam in self.adb_cameras
+            for name in names
         ]
-        result = {"ok": True, "cameras": out, "active": self.capture.selected_camera}
-        if warning:
-            result["warning"] = warning
-        return result
+        return {"ok": True, "cameras": cameras, "active": active}
 
     # -- select -------------------------------------------------------------
-    def select(self, name: str, timeout: float = 45.0) -> dict[str, Any]:
+    def select(self, name: str, timeout: float = 90.0) -> dict[str, Any]:
         name = name.strip()
         if not name:
             raise CaptureError("camera name is required")
-        if isinstance(self.capture, DirectCapture):
-            with self.select_lock:
-                self.log(f"selecting camera {name} (direct Mac path)")
-                st = self.capture.select(name, timeout=timeout)
-                self.log(
-                    f"{name} live (direct): {st.get('width')}x{st.get('height')} "
-                    f"rtp={((st.get('session') or {}).get('rtp'))} "
-                    f"keyframes={((st.get('session') or {}).get('keyframes'))}"
-                )
-                return self._result(name, st)
-        if self.adb is None:
-            raise CaptureError(self.adb_error or "adb not available")
-
         with self.select_lock:
-            if isinstance(self.capture, MacCapture):
-                self.log(f"selecting camera {name} (Mac media path)")
-                st = self.capture.select(name, timeout=timeout)
-                self.log(
-                    f"{name} live (Mac): {st.get('width')}x{st.get('height')} "
-                    f"rtp={((st.get('session') or {}).get('rtp'))} "
-                    f"keyframes={((st.get('session') or {}).get('keyframes'))}"
-                )
-                return self._result(name, st)
-
-            current = self.capture.encoder
-            if (
-                self.capture.selected_camera == name
-                and current is not None
-                and not current.closed
-                and current.wait_ready(1.0)
-            ):
-                st = current.stats()
-                return self._result(name, st)
-
-            # Make sure the app and the Frida session are up.
-            self.adb.ensure_home()
-            if not self.capture.connected:
-                self.capture.connect()
-            if not self.capture.connected:
-                deadline = time.time() + 20.0
-                while time.time() < deadline and not self.capture.connected:
-                    time.sleep(0.5)
-            if not self.capture.connected:
-                raise CaptureError(
-                    "Frida is not attached to Imilab Home. Is frida-server running? "
-                    "Run tools/start_emulator.sh, then try again."
-                )
-
-            prev = self.capture.active_instance()
-            prev_inst = prev.inst if prev else None
-            t_before = time.time()
-            self.log(f"selecting camera {name}")
-            fast_used = False
-            layout = self.camera_layout.get(name)
-            if layout and self.capture.selected_camera and self.capture.selected_camera != name:
-                try:
-                    info = self.adb.fast_play(name, layout)
-                    fast_used = True
-                except Exception as exc:
-                    self.log(f"fast switch missed ({exc}); using full camera search")
-                    info = self.adb.play(name)
-            else:
-                info = self.adb.play(name)
-            already = bool(info.get("already"))
-            self.capture.set_camera(name)
-            t0 = time.time()
-
-            rec = None
-            if already and prev is not None:
-                # The target was already the playing tile; reuse its decoder.
-                time.sleep(0.4)
-                rec = self.capture.active_instance(since=0.0, min_frames=1)
-            else:
-                if fast_used:
-                    rec = self._wait_for_new(t0, prev_inst, min(18.0, timeout))
-                    if rec is None:
-                        self.log("fast switch did not start a decoder; retrying full camera search")
-                        self.adb.play(name)
-                        t0 = time.time()
-                if rec is None:
-                    rec = self._wait_for_new(t0, prev_inst, timeout)
-
-            if rec is None:
-                raise CaptureError(
-                    f"{name} is playing in the app but no Link Visual decoder output "
-                    "was captured. The camera may not be a local Link Visual camera."
-                )
-
-            if not self.capture.select(rec.inst):
-                raise CaptureError(f"could not start the encoder for {name}")
-
-            encoder = self.capture.encoder
-            if encoder is not None:
-                encoder.wait_ready(12.0)
-            stats = encoder.stats() if encoder is not None else {}
+            self.log(f"selecting camera {name} (direct Mac path)")
+            st = self.capture.select(name, timeout=timeout)
             self.log(
-                f"{name} live: {stats.get('width', rec.width)}x{stats.get('height', rec.height)} "
-                f"decoder {rec.short}"
+                f"{name} live (direct): {st.get('width')}x{st.get('height')} "
+                f"rtp={((st.get('session') or {}).get('rtp'))} "
+                f"keyframes={((st.get('session') or {}).get('keyframes'))}"
             )
-            return self._result(name, stats)
-
-    def _wait_for_new(self, t0: float, prev_inst: Optional[str], timeout: float) -> Optional[Any]:
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            cand = self.capture.active_instance(since=t0)
-            if cand is not None and cand.inst != prev_inst:
-                return cand
-            # If the vendor app reused the same decoder object, accept it once
-            # enough fresh frames have arrived.
-            if cand is not None and cand.inst == prev_inst and cand.frames_since(t0) >= 8:
-                return cand
-            time.sleep(0.2)
-        return None
+            return self._result(name, st)
 
     @staticmethod
     def _result(name: str, stats: dict[str, Any]) -> dict[str, Any]:
-        inst = stats.get("inst", "")
+        inst = stats.get("inst", "direct")
         return {
             "ok": True,
             "camera": name,
             "inst": inst,
-            "short": stats.get("short", ""),
+            "short": stats.get("short", "direct"),
             "width": stats.get("width", 0),
             "height": stats.get("height", 0),
             "codec": MSE_CODEC,
@@ -327,22 +101,12 @@ class AppState:
 
     def stop(self) -> dict[str, Any]:
         with self.select_lock:
-            if isinstance(self.capture, (MacCapture, DirectCapture)):
-                self.capture.stop()
-            else:
-                self.capture.stop_encoder()
-            try:
-                if self.adb is not None and not self.direct_mode:
-                    self.adb.pause_all()
-            except Exception:
-                pass
+            self.capture.stop()
             return {"ok": True}
 
     def status(self) -> dict[str, Any]:
         st = self.capture.status()
         st["ok"] = True
-        st["adb"] = self.adb is not None
-        st["adb_error"] = self.adb_error
         st["logs"] = list(self.logs)[-40:]
         return st
 
@@ -483,12 +247,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self._json({
                 "ok": True,
-                "adb": STATE.adb is not None,
                 "capture": bool(
                     getattr(STATE.capture, "connected", False)
-                    or getattr(STATE.capture, "mode", "") in ("mac", "direct")
+                    or getattr(STATE.capture, "mode", "") == "direct"
                 ),
-                "mode": getattr(STATE.capture, "mode", "frida"),
+                "mode": "direct",
             })
             return
         if path.startswith("/stream/"):
@@ -529,8 +292,6 @@ class Handler(BaseHTTPRequestHandler):
                     str(body.get("mac", "")),
                 )
                 STATE.camera_names = list(ec4_config.camera_ids())
-                STATE.camera_layout = {}
-                STATE.adb_cameras = []
                 self._json({
                     "ok": True,
                     "camera": added,

@@ -1,9 +1,9 @@
-"""Imilab Home auth without the app.
+"""Imilab account token refresh.
 
-The app stores an Imilab JWT access token and a 14-day refresh token in
-SharedPreferences (`IMI_sp_key_Name.xml`).  The refresh endpoint accepts the
-refresh token as a GET parameter and does NOT require the white-box
-`X-IMILAB-SIGN` headers, so the Mac can keep the session alive indefinitely.
+The helper stores the Imilab access/refresh tokens in
+``~/.ec4/imi_tokens.json`` after a normal Settings login.  The refresh endpoint
+accepts the refresh token as a GET parameter and does NOT require the
+white-box `X-IMILAB-SIGN` headers, so the Mac can keep the session alive.
 
 Usage:
     python tools/imi_auth.py refresh
@@ -13,9 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
-import shutil
-import subprocess
 import sys
 import time
 import urllib.error
@@ -25,8 +22,6 @@ import urllib.request
 import ec4_config
 import iot_auth
 
-ADB = os.environ.get("EC4_ADB") or shutil.which("adb") or "adb"
-PREFS = "/data/data/com.chuangmi.imihome/shared_prefs/IMI_sp_key_Name.xml"
 TOKEN_FILE = os.path.expanduser("~/.ec4/imi_tokens.json")
 APP_ID = str(ec4_config.get("imi", "app_id", ""))
 IMI_APP_ID = "com.chuangmi.imihome"
@@ -37,29 +32,14 @@ BASE_HOSTS = tuple(
 DEFAULT_IDENTITY = str(ec4_config.get("imi", "identity_id", ""))
 
 
-def _adb_cat(path: str) -> str:
-    return subprocess.check_output([ADB, "shell", "su", "0", "cat", path], text=True)
-
-
-def load_tokens_from_app() -> dict:
-    xml = _adb_cat(PREFS)
-    m = re.search(r'name="imi_sp_user_token_data_key">(.*?)</string>', xml, re.S)
-    if not m:
-        raise RuntimeError("token blob not found in app prefs")
-    return json.loads(m.group(1).replace("&quot;", '"'))
-
-
 def load_tokens() -> dict:
-    if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        if not data.get("identityId"):
-            data["identityId"] = DEFAULT_IDENTITY
-            save_tokens(data)
-        return data
-    data = load_tokens_from_app()
-    data.setdefault("identityId", DEFAULT_IDENTITY)
-    save_tokens(data)
+    if not os.path.exists(TOKEN_FILE):
+        raise RuntimeError("no saved Imilab token; sign in through /settings")
+    with open(TOKEN_FILE, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not data.get("identityId"):
+        data["identityId"] = DEFAULT_IDENTITY
+        save_tokens(data)
     return data
 
 

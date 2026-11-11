@@ -5,7 +5,7 @@ signal WebSocket as the app does, sends an SDP offer plus a host candidate,
 and prints the answer/candidates returned by the camera.
 
 This is the first half of the app-free bootstrap; ICE/media handling lives in
-web/ec4_mac.py.
+web/ec4_rtp.py.
 
 Usage:
     .venv/bin/python tools/p2p_signal.py probe [iotId]

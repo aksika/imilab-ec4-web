@@ -25,7 +25,7 @@ web/ec4_server.py  <-->  DirectCapture
 * **Media is local.**  Once the P2P session is established, RTP flows from the
   camera to the Mac over the LAN.  The browser and ffmpeg are local.
 * The direct path does **not** use an Android emulator, the Imilab app, or
-  Frida.  Frida is only relevant to the optional legacy app/emulator fallback.
+  Frida.  Those legacy modules are not part of this public repository.
 
 ## Camera identity
 

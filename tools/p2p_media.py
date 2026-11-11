@@ -47,7 +47,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import iot_auth  # noqa: E402
 import p2p_signal  # noqa: E402
 import ec4_config  # noqa: E402
-from force_iframe_test import parse, verify, success  # noqa: E402
+from ec4_stun import parse, verify, success  # noqa: E402
 from websockets.asyncio.client import connect  # noqa: E402
 
 IOT_ID = os.environ.get("EC4_IOT_ID") or ec4_config.first_camera_id()
