@@ -30,6 +30,8 @@ does not go through the cloud relay.
 | `tools/imi_auth.py` | Imilab session token refresh |
 | `tools/imi_login.py` | Imilab password login + OpenAccount/IoT exchange |
 | `tools/mac_keychain.py` | macOS Keychain storage for the login helper |
+| `docs/ARCHITECTURE.md` | public-safe architecture and limitations |
+| `docs/SETUP.md` | configuration, running, camera adding, troubleshooting |
 
 ## Configuration (required)
 
