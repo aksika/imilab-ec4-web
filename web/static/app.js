@@ -333,6 +333,17 @@ function startStream(url, attempt = 0) {
   player.muted = true;
   player.classList.add("attached");
 
+  // A retry creates a fresh MediaSource.  Drop the previous SourceBuffer and
+  // queued fragments, otherwise new fragments are appended to the old source
+  // and the player stays black.
+  state.queue = [];
+  state.recvBuf = new Uint8Array(0);
+  state.sb = null;
+  if (state.objectUrl) {
+    try { URL.revokeObjectURL(state.objectUrl); } catch (_) {}
+    state.objectUrl = null;
+  }
+
   const ms = new MediaSource();
   state.ms = ms;
   const objectUrl = URL.createObjectURL(ms);

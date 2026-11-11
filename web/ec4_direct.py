@@ -55,6 +55,53 @@ class DirectCapture:
         self._first_rtp = 0
         self._first_checks = 0
 
+        # A stalled P2P flow must not leave the page retrying forever.
+        self._generation = 0
+        self._next_reconnect = 0.0
+        self._reconnect_delay = 15.0
+        threading.Thread(target=self._watchdog_loop, daemon=True).start()
+
+    # -- recovery ----------------------------------------------------------
+    def _watchdog_loop(self) -> None:
+        while True:
+            time.sleep(5.0)
+            try:
+                with self.lock:
+                    name = self.selected_camera
+                    if not name:
+                        continue
+                    r = self.receiver
+                    enc = self.encoder
+                    reason = ""
+                    if r is not None and r.error:
+                        reason = f"receiver error: {r.error}"
+                    elif r is not None and enc is not None:
+                        age = time.time() - (r.last_rtp or 0.0)
+                        if age > 20.0:
+                            reason = f"no RTP for {age:.0f}s"
+                    elif enc is None and r is None and self.session_data:
+                        # The last select failed before media started.
+                        reason = "stream is not active"
+                    if not reason:
+                        continue
+                    if time.time() < self._next_reconnect:
+                        continue
+                    gen = self._generation
+                self.log(f"{name}: {reason}; reconnecting P2P")
+                self._next_reconnect = time.time() + self._reconnect_delay
+                try:
+                    self.select(name, force=True, expect_generation=gen)
+                    self._reconnect_delay = 15.0
+                    self._next_reconnect = 0.0
+                except Exception as exc:
+                    self.log(f"{name}: reconnect failed: {exc}")
+                    self._reconnect_delay = min(self._reconnect_delay * 2, 120.0)
+            except Exception as exc:
+                try:
+                    self.log(f"watchdog error: {exc}")
+                except Exception:
+                    pass
+
     # -- media callbacks ---------------------------------------------------
     def _on_keyframe(self, data: bytes) -> None:
         self.last_keyframe = data
@@ -163,17 +210,27 @@ class DirectCapture:
             time.sleep(1.0)
         raise CaptureError("camera did not become active via relay viewer")
 
-    def select(self, name: str, timeout: float = 90.0) -> dict:
+    def select(
+        self,
+        name: str,
+        timeout: float = 90.0,
+        force: bool = False,
+        expect_generation: int | None = None,
+    ) -> dict:
         name = name.strip()
         if not name:
             raise CaptureError("camera name is required")
         with self.lock:
+            if expect_generation is not None and expect_generation != self._generation:
+                return self.status()
             if (
-                self.selected_camera == name
+                not force
+                and self.selected_camera == name
                 and self.encoder is not None
                 and not self.encoder.closed
             ):
                 return self.status()
+            self._generation += 1
             self._stop_stream()
             iot_id = ec4_config.camera_ids().get(name) or direct_signal.IOT_ID
             try:
@@ -233,6 +290,7 @@ class DirectCapture:
 
     def stop(self) -> None:
         with self.lock:
+            self._generation += 1
             self._stop_stream()
             self.selected_camera = None
 
@@ -270,6 +328,10 @@ class DirectCapture:
                         "deltas": r.deltas,
                         "seq_gaps": r.seq_gaps,
                         "seq_lost": r.seq_lost,
+                        "error": r.error,
+                        "last_rtp_age": (
+                            time.time() - r.last_rtp if r.last_rtp else None
+                        ),
                         "key": (
                             r.aes_key.decode("ascii", "replace")
                             if r.aes_key else None

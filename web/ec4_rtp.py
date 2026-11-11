@@ -57,6 +57,7 @@ class _Receiver(threading.Thread):
         self.first_check_time = 0.0
         self.error = ""
         self.rtp = 0
+        self.last_rtp = 0.0
         self.keyframes = 0
         self.deltas = 0
         self.media_ssrc: int | None = None
@@ -213,6 +214,7 @@ class _Receiver(threading.Thread):
                     continue
                 except Exception as exc:
                     self.error = str(exc)
+                    self.log(f"receiver error: {exc!r}")
                     break
                 r = fit.parse(d)
                 if r:
@@ -236,18 +238,24 @@ class _Receiver(threading.Thread):
                         self.got_success = True
                     continue
                 if len(d) >= 12 and (d[0] >> 6) == 2:
+                    self.last_rtp = time.time()
                     try:
                         self._raw.put_nowait(d)
                     except Exception:
                         pass
         except Exception as exc:
             self.error = str(exc)
+            self.log(f"receiver failed: {exc!r}")
         finally:
             if self.sock is not None:
                 try:
                     self.sock.close()
                 except Exception:
                     pass
+            self.log(
+                f"receiver stopped rtp={self.rtp} keyframes={self.keyframes} "
+                f"error={self.error or 'none'}"
+            )
 
 def _aes_cbc(key: bytes, data: bytes) -> bytes:
     from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
