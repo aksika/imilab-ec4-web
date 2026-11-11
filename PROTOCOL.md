@@ -1,5 +1,10 @@
 # EC4 local Link Visual P2P — protocol notes
 
+> **Research notes.** This documents private, undocumented interfaces for
+> interoperability with hardware you own. It is not affiliated with IMILAB.
+> No credentials or tokens are included. Use at your own risk; service terms
+> and APIs may change.
+
 These are the reverse-engineering results from the EC4 / Imilab Home 2.9.2
 investigation.  They document the **local P2P media path** and a working
 Mac-side receiver.  Credentials are session-scoped; do not commit live values.

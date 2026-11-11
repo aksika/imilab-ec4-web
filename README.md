@@ -1,9 +1,16 @@
-# IMILAB EC4 — local Mac viewer
+# IMILAB EC4 Web
 
 Low-latency local viewer for IMILAB EC4 cameras.  The media path is entirely
 on the Mac and on the LAN: the Mac opens the camera through the private relay,
 negotiates the P2P/ICE session, receives RTP directly from the camera, and
 serves H.264 fragmented MP4 to the browser through Media Source Extensions.
+
+> **Unofficial project.** Not affiliated with or endorsed by IMILAB. Use only
+> with cameras and accounts you own. The helper talks to private/undocumented
+> services that may change or break; there is no warranty. You must supply
+> your own local configuration — no app keys, tokens, or account data are
+> included in this repository. Compliance with IMILAB's terms is your
+> responsibility.
 
 There is **no Android emulator and no app requirement at runtime**, and media
 does not go through the cloud relay.
