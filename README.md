@@ -94,6 +94,10 @@ or double-click `EC4 Web.command`.
 Open <http://127.0.0.1:8765/>.  Camera names come from `cameras` in
 `~/.ec4/config.json`.
 
+The viewer starts **off**.  Pick a camera tile or press **Start**; **Stop**
+tears down the relay viewer, P2P receiver, and encoder.  Opening or reloading
+the page does not start a camera by itself.
+
 Sign in once at <http://127.0.0.1:8765/settings> with the Imilab account
 password.  This populates the Keychain and creates the Alibaba IoT credential
 pair.  After that the helper refreshes the IoT token and falls back to a

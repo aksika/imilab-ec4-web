@@ -12,6 +12,7 @@ const toastEl = $("#toast");
 const state = {
   cameras: [],
   cameraSignature: "",
+  selectedName: null,
   activeName: null,
   inst: null,
   streamInfo: null,
@@ -72,6 +73,7 @@ async function api(path, opts = {}) {
 function setStreamState(next) {
   state.streamState = next;
   updateMeta();
+  updateControls();
 }
 
 /* ---------------------------------------------------------------- cameras */
@@ -96,6 +98,10 @@ async function loadCameras(force = false) {
     if (state.activeName && !cams.some((c) => c.name === state.activeName)) {
       state.activeName = null;
     }
+    if (state.selectedName && !cams.some((c) => c.name === state.selectedName)) {
+      state.selectedName = null;
+    }
+    if (!state.selectedName) state.selectedName = autoCamera();
     renderTiles();
     if (state.activeName) setActiveTile(state.activeName);
   } else {
@@ -103,12 +109,15 @@ async function loadCameras(force = false) {
   }
   renderChips();
   updateEmpty();
+  updateControls();
   if (!cams.length) {
     setConn("No cameras found", "offline");
   } else if (state.streamState === "live") {
     setConn("Live · local P2P", "live");
+  } else if (state.status && state.status.connected) {
+    setConn("Camera on · press Start", "");
   } else {
-    setConn("Ready", "");
+    setConn("Camera off", "");
   }
   return data;
 }
@@ -120,6 +129,7 @@ function renderChips() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "cam-chip";
+    if (cam.name === state.selectedName) btn.classList.add("selected");
     if (cam.name === state.activeName) btn.classList.add("active");
     if (cam.playing || cam.name === state.activeName) btn.classList.add("playing");
     if (!cam.linkvisual) btn.classList.add("unsupported");
@@ -139,7 +149,7 @@ function renderTiles() {
     tile.dataset.name = cam.name;
     tile.tabIndex = 0;
     tile.setAttribute("role", "button");
-    tile.setAttribute("aria-label", `Watch ${cam.name}`);
+    tile.setAttribute("aria-label", `Start ${cam.name}`);
 
     const slot = document.createElement("div");
     slot.className = "video-slot";
@@ -152,7 +162,7 @@ function renderTiles() {
 
     const hint = document.createElement("div");
     hint.className = "watch-hint";
-    hint.innerHTML = "<span>CLICK TO WATCH</span>";
+    hint.innerHTML = "<span>CLICK TO START</span>";
     tile.appendChild(hint);
 
     const overlay = document.createElement("div");
@@ -210,6 +220,21 @@ function setActiveTile(name) {
 
 function updateEmpty() {
   const hasActive = Boolean(state.activeName && grid.querySelector(".tile.active"));
+  const title = empty.querySelector(".empty-title");
+  const sub = empty.querySelector(".empty-sub");
+  const background = Boolean(state.status && state.status.connected);
+  if (title && sub) {
+    title.textContent = background ? "Camera is on" : "Camera is off";
+    if (background) {
+      sub.textContent = state.selectedName
+        ? `Press Start to view ${state.selectedName}, or Stop to turn it off.`
+        : "Press Start to view, or Stop to turn it off.";
+    } else {
+      sub.textContent = state.selectedName
+        ? `Press Start to watch ${state.selectedName}, or click a camera.`
+        : "Press Start or click a camera to begin.";
+    }
+  }
   empty.classList.toggle("hidden", hasActive);
   if (!hasActive) empty.classList.remove("hidden");
 }
@@ -221,7 +246,11 @@ function updateMeta() {
     const text = tile.querySelector(".badge-text");
     const res = tile.querySelector(".res");
     const cam = state.cameras.find((c) => c.name === name);
-    let label = "OFFLINE";
+    tile.classList.toggle(
+      "selected",
+      name === state.selectedName && name !== state.activeName
+    );
+    let label = "OFF";
     let cls = "badge off";
     let meta = "";
     if (name === state.activeName) {
@@ -233,10 +262,12 @@ function updateMeta() {
           const h = state.streamInfo.height;
           if (w && h) meta = `${w}×${h}`;
         }
-        if (state.status && state.status.encoder) meta += meta ? " · " : "";
-        if (state.status && state.status.encoder) {
+        if (state.status && state.status.width && state.status.height) {
+          meta = `${state.status.width}×${state.status.height}`;
+        }
+        if (state.status && state.status.instances) {
           const inst = state.status.instances.find((i) => i.inst === state.inst);
-          if (inst && inst.fps > 0.1) meta += `${inst.fps.toFixed(0)} fps`;
+          if (inst && inst.fps > 0.1) meta += `${meta ? " · " : ""}${inst.fps.toFixed(0)} fps`;
         }
       } else if (state.streamState === "starting") {
         label = "STARTING";
@@ -250,8 +281,9 @@ function updateMeta() {
         cls = "badge off";
       }
     } else if (cam && cam.playing) {
-      label = "PLAYING";
-      cls = "badge off";
+      label = "ON";
+      cls = "badge starting";
+      meta = "background";
     }
     tile.classList.toggle("live", state.streamState === "live" && name === state.activeName);
     badge.className = cls;
@@ -267,12 +299,15 @@ async function selectCamera(name) {
   if (name === state.activeName && state.streamState === "live") return;
 
   state.selecting = true;
+  state.selectedName = name;
   state.activeName = name;
   localStorage.setItem("ec4.camera", name);
   stopStream();
   setActiveTile(name);
   setStreamState("starting");
+  setConn("Starting…", "");
   renderChips();
+  updateControls();
   setBusy(true, `Starting ${name}…  this can take ~10 seconds`);
   try {
     const data = await api("/api/select", {
@@ -297,6 +332,7 @@ async function selectCamera(name) {
     showToast(err.message || `Could not start ${name}`, true);
   } finally {
     state.selecting = false;
+    updateControls();
   }
 }
 
@@ -560,11 +596,38 @@ async function stopAll() {
   updateEmpty();
   try {
     await api("/api/stop", { method: "POST", body: "{}" });
+    state.status = { ...(state.status || {}), connected: false, selected_camera: null };
     showToast("Stopped");
   } catch (err) {
     showToast(err.message, true);
   }
+  updateControls();
   loadCameras(false);
+}
+
+function startSelected() {
+  if (state.selecting) return;
+  const name = state.selectedName || autoCamera();
+  if (!name) {
+    showToast("No camera selected", true);
+    return;
+  }
+  state.selectedName = name;
+  localStorage.setItem("ec4.camera", name);
+  selectCamera(name);
+}
+
+function updateControls() {
+  const start = $("#btn-start");
+  const stop = $("#btn-stop");
+  if (!start || !stop) return;
+  const active = ["starting", "live", "reconnecting"].includes(state.streamState);
+  const background = Boolean(state.status && state.status.connected);
+  start.disabled = active || state.selecting || !state.cameras.length;
+  stop.disabled = !active && !background;
+  start.title = state.selectedName
+    ? `Start ${state.selectedName}`
+    : "Start the selected camera";
 }
 
 /* ---------------------------------------------------------------- status */
@@ -572,25 +635,36 @@ async function pollStatus() {
   try {
     const st = await api("/api/status");
     state.status = st;
-    if (!st.connected) {
-      setConn("Camera offline", "offline");
+    if (state.streamState === "starting") {
+      setConn("Starting…", "");
+    } else if (state.streamState === "reconnecting") {
+      setConn("Reconnecting…", "");
+    } else if (state.streamState === "error") {
+      setConn("Camera error", "offline");
+    } else if (!st.connected) {
+      setConn("Camera off", "");
     } else if (state.streamState === "live") {
       setConn("Live · local P2P", "live");
     } else {
-      setConn("Ready", "");
+      setConn("Camera on · press Start", "");
     }
-    if (st.selected_camera && st.selected_camera !== state.activeName) {
-      state.activeName = st.selected_camera;
-      setActiveTile(state.activeName);
+    if (st.selected_camera && !state.selectedName) {
+      state.selectedName = st.selected_camera;
+      renderChips();
     }
-    if (st.encoder && st.selected_camera === state.activeName) {
+    if (st.width && st.height && st.selected_camera === state.activeName) {
       if (!state.streamInfo) state.streamInfo = {};
-      state.streamInfo.width = st.encoder.width || state.streamInfo.width;
-      state.streamInfo.height = st.encoder.height || state.streamInfo.height;
+      state.streamInfo.width = st.width;
+      state.streamInfo.height = st.height;
     }
     updateMeta();
+    updateEmpty();
+    updateControls();
   } catch (_) {
+    state.status = { ...(state.status || {}), connected: false };
     setConn("Server offline", "offline");
+    updateEmpty();
+    updateControls();
   }
 }
 
@@ -638,6 +712,7 @@ async function init() {
       setBusy(false);
     }
   });
+  $("#btn-start").addEventListener("click", startSelected);
   $("#btn-stop").addEventListener("click", stopAll);
   player.addEventListener("playing", () => {
     if (state.activeName) setStreamState("live");
@@ -647,11 +722,9 @@ async function init() {
   });
 
   await loadCameras(false);
-  const name = autoCamera();
-  if (name) {
-    // Let the first paint finish before starting the camera.
-    setTimeout(() => selectCamera(name), 250);
-  }
+  if (!state.selectedName) state.selectedName = autoCamera();
+  updateEmpty();
+  updateControls();
   pollStatus();
   state.pollTimer = setInterval(pollStatus, 2000);
 }

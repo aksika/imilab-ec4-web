@@ -79,6 +79,13 @@ body { min-height: 100vh; }
 }
 .btn:hover { border-color: #324255; background: #141c26; }
 .btn.ghost { background: transparent; }
+.btn.primary {
+  background: var(--green);
+  border-color: transparent;
+  color: #06130d;
+  font-weight: 750;
+}
+.btn.primary:hover { background: #63ecb4; border-color: transparent; }
 .btn:disabled { opacity: 0.45; cursor: default; }
 
 .seg { display: inline-flex; padding: 3px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 11px; }
@@ -105,6 +112,7 @@ body { min-height: 100vh; }
 .cam-chip:hover { color: var(--text); border-color: #33455a; }
 .cam-chip .chip-dot { width: 7px; height: 7px; border-radius: 50%; background: #46566a; }
 .cam-chip.playing .chip-dot { background: var(--green); box-shadow: 0 0 9px rgba(73, 224, 161, 0.7); }
+.cam-chip.selected:not(.active) { color: var(--text); border-color: #33455a; background: rgba(51, 69, 90, 0.18); }
 .cam-chip.active { color: var(--text); border-color: rgba(73, 224, 161, 0.55); background: rgba(73, 224, 161, 0.08); }
 .cam-chip.active .chip-dot { background: var(--green); }
 .cam-chip.unsupported { opacity: 0.55; }
@@ -130,6 +138,7 @@ body { min-height: 100vh; }
 }
 .tile:hover { border-color: #31445a; transform: translateY(-1px); }
 .tile:focus-visible { border-color: var(--green); }
+.tile.selected:not(.active) { border-color: #33455a; }
 .tile.active { grid-column: span 8; grid-row: span 2; min-height: 520px; border-color: rgba(73, 224, 161, 0.45); }
 .tile.live { border-color: rgba(73, 224, 161, 0.55); }
 
