@@ -58,16 +58,19 @@ class AppState:
         names = list(ec4_config.camera_ids()) or self.camera_names
         self.camera_names = names
         active = self.capture.selected_camera
-        cameras = [
-            {
+        hosts = ec4_config.host_map()
+        cameras = []
+        for name in names:
+            host = hosts.get(name) or {}
+            cameras.append({
                 "name": name,
                 "playing": name == active,
                 "visible": True,
                 "active": name == active,
                 "linkvisual": True,
-            }
-            for name in names
-        ]
+                "lan_ip": str(host.get("ip") or ""),
+                "lan_bound_at": str(host.get("last_seen") or ""),
+            })
         return {"ok": True, "cameras": cameras, "active": active}
 
     # -- select -------------------------------------------------------------
@@ -84,6 +87,31 @@ class AppState:
                 f"keyframes={((st.get('session') or {}).get('keyframes'))}"
             )
             return self._result(name, st)
+
+    def remove_camera(self, name: str) -> dict[str, Any]:
+        """Stop a live camera and delete it from the local config."""
+        name = (name or "").strip()
+        if not name:
+            raise CaptureError("camera name is required")
+        with self.select_lock:
+            if name not in ec4_config.camera_ids():
+                raise CaptureError("camera is not configured")
+            active = self.capture.selected_camera == name
+            if active:
+                self.log(f"removing active camera {name}; stopping capture")
+                self.capture.stop()
+            removed = ec4_config.remove_camera(name)
+            remaining = ec4_config.camera_ids()
+            self.camera_names = list(remaining)
+            return {
+                "ok": True,
+                "camera": removed,
+                "stopped": active,
+                "cameras": [
+                    {"name": n, "iot_id": i}
+                    for n, i in remaining.items()
+                ],
+            }
 
     @staticmethod
     def _result(name: str, stats: dict[str, Any]) -> dict[str, Any]:
@@ -237,9 +265,16 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 imi_login.ensure_iot_token()
                 cameras = imi_auth.cloud_cameras()
-                configured = set(ec4_config.camera_ids().values())
+                configured = ec4_config.camera_ids()
+                configured_by_id = {iot_id: name for name, iot_id in configured.items()}
+                hosts = ec4_config.host_map()
                 for camera in cameras:
-                    camera["configured"] = camera["iot_id"] in configured
+                    local_name = configured_by_id.get(camera["iot_id"])
+                    host = hosts.get(local_name or "") or {}
+                    camera["configured"] = local_name is not None
+                    camera["configured_name"] = local_name or ""
+                    camera["lan_ip"] = str(host.get("ip") or "")
+                    camera["lan_bound_at"] = str(host.get("last_seen") or "")
                 self._json({"ok": True, "cameras": cameras})
             except Exception as exc:
                 self._json({"ok": False, "error": str(exc)}, 502)
@@ -300,6 +335,13 @@ class Handler(BaseHTTPRequestHandler):
                         for name, iot_id in ec4_config.camera_ids().items()
                     ],
                 })
+            except Exception as exc:
+                self._json({"ok": False, "error": str(exc)}, 400)
+            return
+        if path == "/api/cameras/remove":
+            body = self._read_json()
+            try:
+                self._json(STATE.remove_camera(str(body.get("name", ""))))
             except Exception as exc:
                 self._json({"ok": False, "error": str(exc)}, 400)
             return

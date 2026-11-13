@@ -43,6 +43,9 @@
     .scan-assign { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
     .scan-assign select { background: #0d1117; color: #e6edf3; border: 1px solid #30394a;
       border-radius: 7px; padding: 7px 8px; font-size: 12px; }
+    .btn.danger { color: #ff9a93; border-color: #5a2a2a; background: transparent; }
+    .btn.danger:hover { color: #ffb4ae; border-color: #7a3636; background: #2a1316; }
+    .camera-actions { flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -77,11 +80,23 @@
       </div>
     </div>
 
+    <div class="settings-card" id="configured-card">
+      <h1>Your cameras</h1>
+      <div class="settings-sub">
+        Only these cameras appear in the live view. Removing one also forgets
+        its saved LAN address; if it is streaming, the capture stops first.
+      </div>
+      <div id="configured-list"><div class="scan-meta">Loading cameras…</div></div>
+      <div id="configured-status" class="status"></div>
+    </div>
+
     <div class="settings-card" id="add-camera-card">
       <h1>Add a camera</h1>
       <div class="settings-sub">
         Choose a camera from the Imilab account. The IoT ID is filled from the
-        cloud device list; the scan can attach its LAN IP/MAC.
+        cloud device list. Cameras that belong to another location can still be
+        added; if a saved LAN address is outside this Mac’s network, Start
+        fails immediately with a rebind message.
       </div>
       <div class="field">
         <label for="cloud-select">Camera from cloud</label>
@@ -110,7 +125,9 @@
       <div class="note">
         The IoT ID is not derived from the LAN: it is the Alibaba identity of
         the cloud device. Only cameras returned by the account’s cloud list can
-        be added here.
+        be added here. A “LAN saved” label means an address was bound earlier;
+        it does not prove the camera is awake. Sleeping battery cameras can be
+        absent from a scan.
       </div>
     </div>
 
@@ -164,11 +181,132 @@
       el.className = "status" + (cls ? " " + cls : "");
       el.style.marginTop = "0";
     }
+    function configuredStatus(text, cls) {
+      const el = $("configured-status");
+      el.textContent = text;
+      el.className = "status" + (cls ? " " + cls : "");
+    }
+    function formatWhen(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      return isNaN(date.getTime()) ? value : date.toLocaleString();
+    }
     function useHost(host) {
       $("add-ip").value = host.ip || "";
       $("add-mac").value = host.mac || "";
       $("add-camera-card").scrollIntoView({behavior: "smooth", block: "start"});
       $("cloud-select").focus();
+    }
+    async function loadConfiguredCameras() {
+      const list = $("configured-list");
+      list.textContent = "";
+      try {
+        const r = await fetch("/api/cameras", {cache: "no-store"});
+        const data = await r.json();
+        if (!r.ok || data.ok === false) throw new Error(data.error || "camera list failed");
+        const cameras = data.cameras || [];
+        if (!cameras.length) {
+          const empty = document.createElement("div");
+          empty.className = "scan-meta";
+          empty.textContent = "No cameras configured yet. Add one below.";
+          list.appendChild(empty);
+          return;
+        }
+        for (const cam of cameras) {
+          const row = document.createElement("div");
+          row.className = "scan-host";
+          const main = document.createElement("div");
+          main.className = "scan-host-main";
+          const name = document.createElement("span");
+          name.className = "scan-ip";
+          name.textContent = cam.name;
+          main.appendChild(name);
+          if (cam.playing) main.appendChild(badge("streaming", "camera"));
+          main.appendChild(cam.lan_ip
+            ? badge("LAN saved", "camera")
+            : badge("no LAN address", "possible"));
+          const detail = document.createElement("div");
+          detail.className = "scan-detail";
+          const bits = [];
+          if (cam.lan_ip) bits.push(cam.lan_ip);
+          if (cam.lan_bound_at) bits.push("bound " + formatWhen(cam.lan_bound_at));
+          if (!bits.length) bits.push("use the scan below to bind an address");
+          detail.textContent = bits.join(" · ");
+          main.appendChild(detail);
+          row.appendChild(main);
+
+          const actions = document.createElement("div");
+          actions.className = "camera-actions";
+          const remove = document.createElement("button");
+          remove.className = "btn ghost danger";
+          remove.type = "button";
+          remove.textContent = "Remove";
+          remove.addEventListener("click", () => removeCamera(cam));
+          actions.appendChild(remove);
+          row.appendChild(actions);
+          list.appendChild(row);
+        }
+      } catch (err) {
+        const failed = document.createElement("div");
+        failed.className = "scan-meta";
+        failed.textContent = err.message || "Could not read the local camera list.";
+        list.appendChild(failed);
+      }
+    }
+    async function removeCamera(cam) {
+      const message = cam.playing
+        ? "Remove " + cam.name + " and stop its live stream?"
+        : "Remove " + cam.name + " from the live view?";
+      if (!window.confirm(message)) return;
+      configuredStatus("Removing " + cam.name + "…");
+      try {
+        const r = await fetch("/api/cameras/remove", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({name: cam.name}),
+        });
+        const data = await r.json();
+        if (!r.ok || data.ok === false) throw new Error(data.error || "remove failed");
+        configuredStatus(data.stopped
+          ? "Removed " + cam.name + " and stopped its stream."
+          : "Removed " + cam.name + ".", "ok");
+        await Promise.all([loadConfiguredCameras(), loadCloudCameras()]);
+      } catch (err) {
+        configuredStatus(err.message || "Could not remove the camera.", "err");
+      }
+    }
+    let cloudCameras = [];
+    function renderCloudCameras() {
+      const select = $("cloud-select");
+      const button = $("add-btn");
+      const available = cloudCameras
+        .filter((camera) => !camera.configured)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      select.textContent = "";
+      button.disabled = true;
+      if (!available.length) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "All cloud cameras are already added";
+        select.appendChild(opt);
+        select.disabled = false;
+        addStatus("No new cameras in the Imilab cloud list.");
+        return;
+      }
+      for (const camera of available) {
+        const opt = document.createElement("option");
+        opt.value = camera.iot_id;
+        opt.textContent = camera.name + " — " +
+          (camera.product_name || "camera").trim();
+        opt.dataset.name = camera.name;
+        select.appendChild(opt);
+      }
+      select.disabled = false;
+      const first = available[0];
+      $("add-name").value = first.name;
+      $("add-iot").value = first.iot_id;
+      button.disabled = false;
+      addStatus("Select a cloud camera, then add it. Use the scan below to bind its LAN address.");
     }
     async function loadCloudCameras() {
       const select = $("cloud-select");
@@ -180,29 +318,8 @@
         const r = await fetch("/api/cloud/cameras", {cache: "no-store"});
         const data = await r.json();
         if (!r.ok || data.ok === false) throw new Error(data.error || "cloud list failed");
-        const available = (data.cameras || []).filter((camera) => !camera.configured);
-        if (!available.length) {
-          const opt = document.createElement("option");
-          opt.value = "";
-          opt.textContent = "All cloud cameras are already added";
-          select.appendChild(opt);
-          addStatus("No new cameras in the Imilab cloud list.");
-          select.disabled = false;
-          return;
-        }
-        for (const camera of available) {
-          const opt = document.createElement("option");
-          opt.value = camera.iot_id;
-          opt.textContent = camera.name + " — " + (camera.product_name || "camera").trim();
-          opt.dataset.name = camera.name;
-          select.appendChild(opt);
-        }
-        select.disabled = false;
-        const first = available[0];
-        $("add-name").value = first.name;
-        $("add-iot").value = first.iot_id;
-        button.disabled = false;
-        addStatus("Select a cloud camera, then add it.");
+        cloudCameras = data.cameras || [];
+        renderCloudCameras();
       } catch (err) {
         const opt = document.createElement("option");
         opt.value = "";
@@ -237,7 +354,7 @@
         if (!r.ok || data.ok === false) throw new Error(data.error || "add failed");
         $("add-ip").value = "";
         $("add-mac").value = "";
-        await loadCloudCameras();
+        await Promise.all([loadCloudCameras(), loadConfiguredCameras()]);
         addStatus("Added " + name + ". Open the live view and click Refresh.", "ok");
       } catch (err) {
         addStatus(err.message || "Could not add the camera.", "err");
@@ -373,6 +490,7 @@
       } finally {
         button.disabled = false;
         button.textContent = "Scan local network";
+        loadConfiguredCameras();
       }
     }
     $("login-form").addEventListener("submit", async (ev) => {
@@ -430,6 +548,7 @@
     $("scan-btn").addEventListener("click", runScan);
     refresh();
     loadCloudCameras();
+    loadConfiguredCameras();
   </script>
 </body>
 </html>

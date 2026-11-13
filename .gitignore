@@ -34,3 +34,6 @@ emulator.log
 
 # macOS
 .DS_Store
+
+# Launcher output
+nohup.out

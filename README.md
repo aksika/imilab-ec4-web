@@ -56,6 +56,14 @@ You only need to change the host fields if your account is in another region.
 added from the cloud list in `/settings`; `cameras` starts empty.
 * `cameras` — display name → camera `iotId`.
 
+The cloud list is discovery only: an account may contain cameras at another
+location.  Settings marks cameras with a saved LAN address and lets you
+**Remove** any configured camera; removing the active one stops the stream
+first.  Starting a camera whose saved address is outside the Mac’s current
+network fails immediately with a rebind message instead of retrying.  LAN
+binding is advisory, because a sleeping battery camera can be absent from a
+scan.
+
 The helper stores its runtime state outside the repository as well:
 
 ```text

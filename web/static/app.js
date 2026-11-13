@@ -96,7 +96,13 @@ async function loadCameras(force = false) {
   if (sig !== state.cameraSignature) {
     state.cameraSignature = sig;
     if (state.activeName && !cams.some((c) => c.name === state.activeName)) {
+      stopStream();
       state.activeName = null;
+      state.inst = null;
+      state.streamInfo = null;
+      setStreamState("off");
+      setActiveTile(null);
+      updateEmpty();
     }
     if (state.selectedName && !cams.some((c) => c.name === state.selectedName)) {
       state.selectedName = null;
@@ -400,7 +406,21 @@ async function fetchStream(url, gen) {
   state.recvBuf = new Uint8Array(0);
   try {
     const resp = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
-    if (!resp.ok) throw new Error(`stream HTTP ${resp.status}`);
+    if (!resp.ok) {
+      if (resp.status === 404 && gen === state.generation) {
+        stopStream();
+        state.activeName = null;
+        state.inst = null;
+        state.streamInfo = null;
+        setStreamState("off");
+        setActiveTile(null);
+        updateEmpty();
+        showToast("Camera is no longer configured", true);
+        loadCameras(false);
+        return;
+      }
+      throw new Error(`stream HTTP ${resp.status}`);
+    }
     if (!resp.body) throw new Error("streaming not supported by this browser");
     const reader = resp.body.getReader();
     while (true) {

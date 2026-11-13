@@ -220,6 +220,14 @@ class DirectCapture:
         name = name.strip()
         if not name:
             raise CaptureError("camera name is required")
+        camera_ids = ec4_config.camera_ids()
+        if name not in camera_ids:
+            raise CaptureError("camera is not configured")
+        # Reject a camera remembered on another network before touching the
+        # current stream.  A sleeping camera is fine: this does not ping it.
+        mismatch = ec4_config.lan_mismatch(name)
+        if mismatch:
+            raise CaptureError(mismatch)
         with self.lock:
             if expect_generation is not None and expect_generation != self._generation:
                 return self.status()
@@ -232,7 +240,7 @@ class DirectCapture:
                 return self.status()
             self._generation += 1
             self._stop_stream()
-            iot_id = ec4_config.camera_ids().get(name) or direct_signal.IOT_ID
+            iot_id = camera_ids[name]
             try:
                 imi_login.ensure_iot_token()
             except Exception as exc:

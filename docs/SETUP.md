@@ -66,7 +66,7 @@ Open <http://127.0.0.1:8765/>.  Sign in once at `/settings` with the Imilab
 account password.  The helper refreshes the cloud credentials and stores the
 password in Keychain.
 
-## 4. Add cameras
+## 4. Add and remove cameras
 
 Open `/settings` → **Add a camera**:
 
@@ -74,8 +74,13 @@ Open `/settings` → **Add a camera**:
 * optional LAN IP/MAC can be attached from a scan result;
 * after adding, open the main page and click **Refresh**.
 
+**Your cameras** lists every configured camera with its saved LAN address and
+a **Remove** action.  Removing the active camera stops its capture first.
+Removal deletes the entry from `~/.ec4/config.json` and its address from
+`~/.ec4/camera_hosts.json`.
+
 The main page re-reads `~/.ec4/config.json` on Refresh; no server restart is
-needed for a newly added camera.
+needed for a newly added or removed camera.
 
 ## 5. LAN scan
 
@@ -83,7 +88,14 @@ needed for a newly added camera.
 and TCP fingerprinting.  It matches saved camera IP/MACs from
 `~/.ec4/camera_hosts.json`; unknown camera-like hosts can be remembered.
 
-The scan is local-only and does not use the cloud relay.
+The scan is local-only and does not use the cloud relay.  A battery camera may
+be asleep and absent from a scan even when it is local.
+
+Starting a camera whose saved address is outside the Mac’s current network
+fails immediately with a rebind message.  This rejects cameras that belong to
+another location without waiting for a stream timeout.  The check uses network
+membership only and never pings the camera, so a sleeping local camera still
+starts normally.
 
 ## 6. Important limits
 
@@ -98,6 +110,9 @@ The scan is local-only and does not use the cloud relay.
 ## Troubleshooting
 
 * No cameras in the page — check `cameras` in `~/.ec4/config.json`.
+* Camera fails with “not on this Mac’s network” — its saved LAN address is
+  stale or belongs to another location. Reconnect to that LAN, scan, and bind
+  it again, or remove it under **Settings → Your cameras**.
 * Cloud list or login failures — run `python tools/imi_login.py --status`, then
   sign in through `/settings`.
 * Grey/purple blocks — ensure ffmpeg is not using `-fflags nobuffer`.
