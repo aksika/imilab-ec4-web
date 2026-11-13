@@ -195,6 +195,7 @@ class DirectCapture:
         env["EC4_RELAY_URL"] = relay
         env["EC4_RELAY_PING_EARLY"] = "1"
         env["EC4_IOT_ID"] = iot_id
+        env["EC4_PARENT_PID"] = str(os.getpid())
         log_path = os.path.join(tempfile.gettempdir(), "ec4_direct_viewer.log")
         try:
             fh = open(log_path, "ab", buffering=0)

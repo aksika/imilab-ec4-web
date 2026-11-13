@@ -149,7 +149,9 @@ Open <http://127.0.0.1:8765/>.  Camera names come from `cameras` in
 
 The viewer starts **off**.  Pick a camera tile or press **Start**; **Stop**
 tears down the relay viewer, P2P receiver, and encoder.  Opening or reloading
-the page does not start a camera by itself.
+the page does not start a camera by itself.  Closing the page also sends Stop.
+If the helper process dies, its relay viewer exits instead of leaving the
+camera awake until its one-hour timeout.
 
 The top-bar codec selector controls the next start:
 

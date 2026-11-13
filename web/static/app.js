@@ -853,6 +853,26 @@ async function stopAll() {
   loadCameras(false);
 }
 
+function stopForPageExit() {
+  if (!state.hasStream && !state.selecting && !state.activeName) return;
+  const body = new Blob(["{}"], { type: "application/json" });
+  try {
+    if (navigator.sendBeacon && navigator.sendBeacon("/api/stop", body)) {
+      return;
+    }
+  } catch (_) {}
+  try {
+    fetch("/api/stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      keepalive: true,
+    }).catch(() => {});
+  } catch (_) {}
+}
+
+window.addEventListener("pagehide", stopForPageExit);
+
 function startSelected() {
   if (state.selecting) return;
   const name = state.selectedName || autoCamera();

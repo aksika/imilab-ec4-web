@@ -193,6 +193,10 @@ class ChunkReader:
 
 def main() -> None:
     seconds = int(sys.argv[1]) if len(sys.argv) > 1 else 20
+    parent_pid = int(os.environ.get("EC4_PARENT_PID") or "0")
+    if parent_pid and os.getppid() != parent_pid:
+        print("parent exited, closing", flush=True)
+        return
     creds = iot_auth.load_creds()
     if creds.get("refreshToken") and creds.get("identityId"):
         r = iot_auth.refresh(creds["identityId"], creds["refreshToken"])
@@ -259,6 +263,9 @@ def main() -> None:
     sock.settimeout(1.0)
     total = 0
     while time.time() - start < seconds:
+        if parent_pid and os.getppid() != parent_pid:
+            print("parent exited, closing", flush=True)
+            break
         try:
             data = sock.recv(65536)
             if not data:

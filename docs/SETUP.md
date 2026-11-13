@@ -132,6 +132,9 @@ camera still starts normally.
   access via Tailscale is not supported by this transport; run a helper on the
   remote LAN instead.
 * Only one camera stream is opened at a time.
+* **Stop** kills the relay viewer, P2P receiver, and encoder.  Closing the
+  viewer page also sends Stop, and a relay viewer exits if its parent helper
+  dies.  The camera’s own firmware decides when it returns to deep sleep.
 
 ## Troubleshooting
 
