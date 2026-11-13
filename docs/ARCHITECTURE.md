@@ -2,7 +2,7 @@
 
 This is a local, browser-based viewer for IMILAB EC4 cameras.  It is not a
 cloud streaming client: the camera is opened through its private relay, then
-the Mac negotiates a P2P/ICE session and receives RTP directly over the LAN.
+the helper host negotiates a P2P/ICE session and receives RTP directly over the LAN.
 
 ```text
 browser (MSE)
@@ -24,9 +24,8 @@ web/ec4_server.py  <-->  DirectCapture
   the Imilab/Alibaba cloud, opens the camera through the private relay, and
   exchanges ICE candidates through the cloud signal service.
 * **Media is local.**  Once the P2P session is established, RTP flows from the
-  camera to the Mac over the LAN.  The browser and ffmpeg are local.
-* The direct path does **not** use an Android emulator, the Imilab app, or
-  Frida.  Those legacy modules are not part of this public repository.
+  camera to the host over the LAN.  The browser and ffmpeg are local.
+* The direct path does not require the mobile app at runtime.
 
 ## Camera identity
 
@@ -37,8 +36,8 @@ invent an `iotId`.
 
 ## Scope and limitations
 
-* The direct receiver is designed for cameras on the same LAN as the Mac.
-  It selects `192.168.*` host candidates and advertises the Mac's LAN IP.
+* The direct receiver is designed for cameras on the same LAN as the helper
+  host.  It selects `192.168.*` host candidates and advertises the host's LAN IP.
 * Remote-home viewing over the internet or Tailscale is not supported by this
   transport path.  Run the helper on a machine at the remote site, or use the
   cloud relay path instead.

@@ -1,7 +1,7 @@
 # IMILAB EC4 Web
 
 Low-latency local viewer for IMILAB EC4 cameras.  The media path is entirely
-on the Mac and on the LAN: the Mac opens the camera through the private relay,
+local and on the LAN: the helper opens the camera through the private relay,
 negotiates the P2P/ICE session, receives RTP directly from the camera, and
 serves fragmented MP4 to the browser through Media Source Extensions.  The
 output is H.264 by default, or H.265 passthrough when the browser supports HEVC.
@@ -13,15 +13,14 @@ output is H.264 by default, or H.265 passthrough when the browser supports HEVC.
 > tokens, camera IDs, or user data are included. Compliance with IMILAB's terms
 > is your responsibility.
 
-There is **no Android emulator and no app requirement at runtime**, and media
-does not go through the cloud relay.
+Media does not go through the cloud relay.
 
 ## What is in this repository
 
 | Path | Purpose |
 |---|---|
 | `web/ec4_server.py` | local HTTP server, camera picker, `/stream/direct` |
-| `web/ec4_direct.py` | pure-Mac capture backend (relay viewer + RTP + ffmpeg) |
+| `web/ec4_direct.py` | direct capture backend (relay viewer + RTP + ffmpeg) |
 | `web/ec4_encoder.py` | ffmpeg H.264 encoder or H.265 passthrough to fMP4 |
 | `web/ec4_rtp.py` | RTP receiver, keyframe assembly, H.265 access units |
 | `web/static/` | browser UI (MSE player, camera grid, settings) |
@@ -30,7 +29,6 @@ does not go through the cloud relay.
 | `tools/iot_auth.py` | Alibaba IoT API auth/stream query |
 | `tools/imi_auth.py` | Imilab session token refresh |
 | `tools/imi_login.py` | Imilab password login + OpenAccount/IoT exchange |
-| `tools/mac_keychain.py` | macOS Keychain storage for the login helper |
 | `docs/ARCHITECTURE.md` | public-safe architecture and limitations |
 | `docs/SETUP.md` | configuration, running, camera adding, troubleshooting |
 
@@ -61,7 +59,7 @@ The cloud list is discovery only: an account may contain cameras at another
 location.  Settings marks each camera as local, outside the LAN, or unbound,
 and lets you **Remove** any configured camera; removing the active one stops
 the stream first.  Only cameras whose saved address belongs to one of the
-Mac’s local networks get a working Start control.  Remote or unbound cameras
+host’s local networks get a working Start control.  Remote or unbound cameras
 show **REMOTE** or **NO LAN** and stay disabled until you bind their address
 with a scan or **Bind IP**.
 
@@ -77,26 +75,45 @@ The helper stores its runtime state outside the repository as well:
 ~/.ec4/iot_creds.json     Alibaba IoT token/refresh token, mode 0600
 ```
 
-The Imilab password is stored in the **macOS Keychain** (service
-`ec4-imilab`), never in a cookie, localStorage, or a repository file.
+The Imilab password is stored in the **operating system credential store**
+through `keyring` (Keychain on macOS, Credential Manager on Windows, Secret
+Service/KWallet on Linux), never in a cookie, localStorage, or a repository
+file.
 
 ## Requirements
 
-* macOS
 * Python 3.10+
-* `ffmpeg` with `libx264` (`brew install ffmpeg`); H.265 passthrough only needs
+* `ffmpeg` with `libx264` for the H.264 path; H.265 passthrough only needs
   ffmpeg’s built-in HEVC muxer
+* A working `keyring` backend for the login helper
 * A browser with HEVC support in Media Source Extensions for H.265 passthrough
 * Local network access to the camera and hub
 
-The launcher creates `.venv` and installs:
+`run_web.sh` creates `.venv` and installs:
 
 ```text
 websockets cryptography keyring
 ```
 
-Frida is **not** required, and the legacy Android app/emulator code is not
-part of this repository.  The public runtime is the direct Mac path only.
+If you start `web/ec4_server.py` directly, install those packages yourself.
+
+## Platform support
+
+The capture, relay, RTP, and ffmpeg pipeline are Python/socket based and are not
+tied to a particular desktop OS.  The current release is developed and tested
+on macOS.  The remaining OS-specific pieces are small adapters:
+
+* the credential wrapper (`mac_keychain.py`) — it already uses the portable
+  `keyring` API, but needs a rename and a backend check that is not
+  macOS-specific;
+* interface discovery (`ifconfig`) and the LAN scan (`arp`/`ping` flags);
+* the shell/`.command` launchers and the macOS `open` command;
+* the viewer log path under `/tmp`.
+
+Linux needs replacements for those adapters.  Windows additionally needs
+Windows ARP/ping parsing and launcher handling.  H.265 passthrough itself is
+portable: it is ffmpeg `-c:v copy` plus Python sockets; H.264 output only needs
+an ffmpeg build with libx264.
 
 ## Run
 
@@ -104,7 +121,11 @@ part of this repository.  The public runtime is the direct Mac path only.
 ./run_web.sh
 ```
 
-or double-click `EC4 Web.command`.
+After installing the requirements, the server can also be started directly:
+
+```sh
+python web/ec4_server.py
+```
 
 Open <http://127.0.0.1:8765/>.  Camera names come from `cameras` in
 `~/.ec4/config.json`.
@@ -126,9 +147,9 @@ Changing the selector while a camera is live applies after **Stop** and
 the MSE error instead of silently switching.
 
 Sign in once at <http://127.0.0.1:8765/settings> with the Imilab account
-password.  This populates the Keychain and creates the Alibaba IoT credential
-pair.  After that the helper refreshes the IoT token and falls back to a
-Keychain re-login when the refresh token expires.
+password.  This populates the OS credential store and creates the Alibaba IoT
+credential pair.  After that the helper refreshes the IoT token and falls back
+to a credential-store re-login when the refresh token expires.
 
 Useful helper commands:
 
@@ -143,7 +164,7 @@ python tools/imi_login.py --refresh
 Open `/settings` → **Add a camera**.  The camera list is fetched from the
 Imilab cloud; selecting one fills in its **name and IoT ID** automatically
 (the IoT ID is an Alibaba cloud device identity, not a LAN address).  A camera
-needs a LAN IP on one of the Mac’s local networks before it can start, so
+needs a LAN IP on one of the host’s local networks before it can start, so
 attach the LAN IP/MAC from a scan result or enter it manually.  The new camera
 appears on the main page after you click **Refresh**.  A camera without a LAN
 address is added but shown as **NO LAN** and disabled.
@@ -169,7 +190,7 @@ it does not use the cloud relay.
 ## Media path
 
 ```text
-camera --LAN P2P--> Mac relay viewer
+camera --LAN P2P--> local relay viewer
                         |
                         +--> signal/ICE negotiation
                         +--> RTP (AES keyframe fragments)
@@ -208,5 +229,5 @@ native resolution and uses much less CPU than the H.264 path.
   through `/settings` to refresh the credential chain.
 * **Grey/purple blocks** — verify the ffmpeg command does not contain
   `-fflags nobuffer`.
-* **Port already in use** — stop the old server or start with
-  `EC4_PORT=8766 ./run_web.sh`.
+* **Port already in use** — stop the old server or set `EC4_PORT=8766` before
+  starting it.

@@ -15,8 +15,6 @@ The launcher creates `.venv` and installs:
 websockets cryptography keyring
 ```
 
-Frida is not required for the direct path.
-
 ## 2. Local configuration
 
 The repository ships **app-level client defaults** in `config.example.json`.
