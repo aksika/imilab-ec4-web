@@ -71,15 +71,19 @@ password in Keychain.
 Open `/settings` → **Add a camera**:
 
 * the name and `iotId` are filled from the Imilab cloud device list;
-* optional LAN IP/MAC can be attached from a scan result;
+* a LAN IP/MAC is needed before the camera can be started; it can be attached
+  from a scan result or entered manually;
 * after adding, open the main page and click **Refresh**.
 
-**Your cameras** lists every configured camera with its saved LAN address and
-a **Remove** action.  Removing the active camera stops its capture first.
-Removal deletes the entry from `~/.ec4/config.json` and its address from
-`~/.ec4/camera_hosts.json`.
+**Your cameras** lists every configured camera with its local-network state
+and a **Remove** action.  **Bind IP** changes or sets the saved address; the
+scan can also bind a discovered host.  Removing the active camera stops its
+capture first.  Removal deletes the entry from `~/.ec4/config.json` and its
+address from `~/.ec4/camera_hosts.json`.
 
-The main page re-reads `~/.ec4/config.json` on Refresh; no server restart is
+A camera with no saved address, or an address outside the Mac’s local
+networks, is shown as **NO LAN** or **REMOTE** and cannot be started.  The
+main page re-reads `~/.ec4/config.json` on Refresh; no server restart is
 needed for a newly added or removed camera.
 
 ## 5. LAN scan
@@ -88,14 +92,17 @@ needed for a newly added or removed camera.
 and TCP fingerprinting.  It matches saved camera IP/MACs from
 `~/.ec4/camera_hosts.json`; unknown camera-like hosts can be remembered.
 
-The scan is local-only and does not use the cloud relay.  A battery camera may
-be asleep and absent from a scan even when it is local.
+The **Interface / network** picker lists the Mac’s active private IPv4
+interfaces.  Choosing one scans that interface’s subnet (`cidr`); **Automatic**
+follows the default route.  The scan is local-only and does not use the cloud
+relay.  A battery camera may be asleep and absent from a scan even when it is
+local.
 
-Starting a camera whose saved address is outside the Mac’s current network
-fails immediately with a rebind message.  This rejects cameras that belong to
-another location without waiting for a stream timeout.  The check uses network
-membership only and never pings the camera, so a sleeping local camera still
-starts normally.
+Starting a camera whose saved address is outside all of the Mac’s local
+networks fails immediately with a rebind message.  This rejects cameras that
+belong to another location without waiting for a stream timeout.  The check
+uses network membership only and never pings the camera, so a sleeping local
+camera still starts normally.
 
 ## 6. Important limits
 
@@ -110,9 +117,9 @@ starts normally.
 ## Troubleshooting
 
 * No cameras in the page — check `cameras` in `~/.ec4/config.json`.
-* Camera fails with “not on this Mac’s network” — its saved LAN address is
-  stale or belongs to another location. Reconnect to that LAN, scan, and bind
-  it again, or remove it under **Settings → Your cameras**.
+* Camera shows **NO LAN** or **REMOTE** — it has no saved address or its
+  address is outside this Mac’s networks. Use **Bind IP** or scan the correct
+  interface, or remove it under **Settings → Your cameras**.
 * Cloud list or login failures — run `python tools/imi_login.py --status`, then
   sign in through `/settings`.
 * Grey/purple blocks — ensure ffmpeg is not using `-fflags nobuffer`.

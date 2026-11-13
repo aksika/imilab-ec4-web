@@ -223,11 +223,15 @@ class DirectCapture:
         camera_ids = ec4_config.camera_ids()
         if name not in camera_ids:
             raise CaptureError("camera is not configured")
-        # Reject a camera remembered on another network before touching the
-        # current stream.  A sleeping camera is fine: this does not ping it.
-        mismatch = ec4_config.lan_mismatch(name)
-        if mismatch:
-            raise CaptureError(mismatch)
+        # Reject remote or unbound cameras before touching the current stream.
+        # A sleeping local camera is fine: this checks saved membership only.
+        lan_state = ec4_config.lan_state(name)
+        if lan_state == "remote":
+            raise CaptureError(ec4_config.lan_mismatch(name))
+        if lan_state == "unbound":
+            raise CaptureError(
+                f"{name} has no saved LAN address; bind it in Settings first"
+            )
         with self.lock:
             if expect_generation is not None and expect_generation != self._generation:
                 return self.status()
@@ -291,6 +295,11 @@ class DirectCapture:
                 return self.status()
             except Exception:
                 self._stop_stream()
+                if not force:
+                    # A failed user-initiated start must not leave the camera
+                    # selected, or the watchdog will keep retrying it forever.
+                    self.selected_camera = None
+                    self.session_data = None
                 raise
 
     def switch(self, name: str, timeout: float = 30.0) -> dict:

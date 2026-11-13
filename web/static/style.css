@@ -116,6 +116,8 @@ body { min-height: 100vh; }
 .cam-chip.active { color: var(--text); border-color: rgba(73, 224, 161, 0.55); background: rgba(73, 224, 161, 0.08); }
 .cam-chip.active .chip-dot { background: var(--green); }
 .cam-chip.unsupported { opacity: 0.55; }
+.cam-chip.unavailable { opacity: 0.4; cursor: not-allowed; }
+.cam-chip.unavailable:hover { color: var(--muted); border-color: var(--line); }
 
 .stage { position: relative; min-height: 320px; }
 
@@ -138,6 +140,10 @@ body { min-height: 100vh; }
 }
 .tile:hover { border-color: #31445a; transform: translateY(-1px); }
 .tile:focus-visible { border-color: var(--green); }
+.tile.unavailable { opacity: 0.55; cursor: not-allowed; }
+.tile.unavailable:hover { border-color: var(--line); transform: none; }
+.tile.unavailable:focus-visible { border-color: var(--line); }
+.tile.unavailable .watch-hint span { opacity: 0.7; }
 .tile.selected:not(.active) { border-color: #33455a; }
 .tile.active { grid-column: span 8; grid-row: span 2; min-height: 520px; border-color: rgba(73, 224, 161, 0.45); }
 .tile.live { border-color: rgba(73, 224, 161, 0.55); }

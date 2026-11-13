@@ -57,12 +57,16 @@ added from the cloud list in `/settings`; `cameras` starts empty.
 * `cameras` — display name → camera `iotId`.
 
 The cloud list is discovery only: an account may contain cameras at another
-location.  Settings marks cameras with a saved LAN address and lets you
-**Remove** any configured camera; removing the active one stops the stream
-first.  Starting a camera whose saved address is outside the Mac’s current
-network fails immediately with a rebind message instead of retrying.  LAN
-binding is advisory, because a sleeping battery camera can be absent from a
-scan.
+location.  Settings marks each camera as local, outside the LAN, or unbound,
+and lets you **Remove** any configured camera; removing the active one stops
+the stream first.  Only cameras whose saved address belongs to one of the
+Mac’s local networks get a working Start control.  Remote or unbound cameras
+show **REMOTE** or **NO LAN** and stay disabled until you bind their address
+with a scan or **Bind IP**.
+
+The start guard checks network membership only; it never pings the camera, so
+a sleeping battery camera still follows the normal relay-wake path.  LAN
+binding is therefore useful even when a scan cannot see a sleeping camera.
 
 The helper stores its runtime state outside the repository as well:
 
@@ -123,24 +127,29 @@ python tools/imi_login.py --refresh
 
 Open `/settings` → **Add a camera**.  The camera list is fetched from the
 Imilab cloud; selecting one fills in its **name and IoT ID** automatically
-(the IoT ID is an Alibaba cloud device identity, not a LAN address).  You can
-attach the LAN IP/MAC from a scan result, then click **Add camera**.  The new
-camera appears on the main page after you click **Refresh**.
+(the IoT ID is an Alibaba cloud device identity, not a LAN address).  A camera
+needs a LAN IP on one of the Mac’s local networks before it can start, so
+attach the LAN IP/MAC from a scan result or enter it manually.  The new camera
+appears on the main page after you click **Refresh**.  A camera without a LAN
+address is added but shown as **NO LAN** and disabled.
 
 ### LAN camera scan
 
-Open `/settings` and click **Scan local network**.  The scanner:
+Open `/settings` and click **Scan local network**.  The **Interface / network**
+picker lists active private IPv4 interfaces; choose the one that reaches the
+camera, or leave **Automatic** to use the default route.  The scanner:
 
-1. Does a fast ping sweep of the local `/24` and reads the ARP table.
+1. Pings the selected subnet and reads the ARP table.
 2. Probes a small set of camera/device ports.
 3. Matches saved camera IP/MACs from `~/.ec4/camera_hosts.json`.
 4. Marks other camera-like hosts (`:8000`, without `:80/:443/:1883`) as
    possible cameras.
 
 For an existing configured camera, choose its name and click **Remember** in
-the scan result.  **Use IP** fills the LAN fields in the Add Camera form.  The
-mapping is saved outside the repository in `~/.ec4/camera_hosts.json` (mode
-0600).  The scan is local-only; it does not use the cloud relay.
+the scan result, or use **Bind IP** in **Your cameras**.  **Use IP** fills the
+LAN fields in the Add Camera form.  The mapping is saved outside the
+repository in `~/.ec4/camera_hosts.json` (mode 0600).  The scan is local-only;
+it does not use the cloud relay.
 
 ## Media path
 

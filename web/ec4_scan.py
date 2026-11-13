@@ -100,6 +100,8 @@ def scan(cidr: str | None = None) -> dict:
     started = time.time()
     net = _network(cidr)
     local_ip = ec4_config.lan_ip()
+    local_ips = {local_ip}
+    local_ips.update(item["ip"] for item in ec4_config.local_networks())
     configured = ec4_config.camera_ids()
     known = ec4_config.host_map()
 
@@ -115,7 +117,7 @@ def scan(cidr: str | None = None) -> dict:
     }
 
     existing = _arp_table()
-    hosts = [str(ip) for ip in net.hosts() if str(ip) != local_ip]
+    hosts = [str(ip) for ip in net.hosts() if str(ip) not in local_ips]
     with ThreadPoolExecutor(max_workers=64) as pool:
         futures = [pool.submit(_ping, ip) for ip in hosts]
         for future in as_completed(futures):
@@ -127,10 +129,9 @@ def scan(cidr: str | None = None) -> dict:
 
     candidates = {
         ip for ip in set(arp) | set(existing) | set(by_ip)
-        if ipaddress.ip_address(ip) in net
+        if ipaddress.ip_address(ip) in net and ip not in local_ips
     }
     # A saved camera may be asleep and absent from ARP; keep it visible.
-    candidates.discard(local_ip)
 
     port_map: dict[str, list[int]] = {}
     with ThreadPoolExecutor(max_workers=32) as pool:

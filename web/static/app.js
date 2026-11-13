@@ -91,7 +91,7 @@ async function loadCameras(force = false) {
     return null;
   }
   const cams = data.cameras || [];
-  const sig = cams.map((c) => c.name).join("|");
+  const sig = cams.map((c) => `${c.name}:${c.lan_state || ""}`).join("|");
   state.cameras = cams;
   if (sig !== state.cameraSignature) {
     state.cameraSignature = sig;
@@ -104,10 +104,10 @@ async function loadCameras(force = false) {
       setActiveTile(null);
       updateEmpty();
     }
-    if (state.selectedName && !cams.some((c) => c.name === state.selectedName)) {
-      state.selectedName = null;
+    const selected = cams.find((c) => c.name === state.selectedName);
+    if (!selected || selected.lan_state !== "local") {
+      state.selectedName = autoCamera();
     }
-    if (!state.selectedName) state.selectedName = autoCamera();
     renderTiles();
     if (state.activeName) setActiveTile(state.activeName);
   } else {
@@ -122,6 +122,8 @@ async function loadCameras(force = false) {
     setConn("Live · local P2P", "live");
   } else if (state.status && state.status.connected) {
     setConn("Camera on · press Start", "");
+  } else if (!cams.some((c) => c.lan_state === "local")) {
+    setConn("No local cameras", "offline");
   } else {
     setConn("Camera off", "");
   }
@@ -135,10 +137,18 @@ function renderChips() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "cam-chip";
+    const unavailable = cam.lan_state !== "local" && cam.name !== state.activeName;
     if (cam.name === state.selectedName) btn.classList.add("selected");
     if (cam.name === state.activeName) btn.classList.add("active");
     if (cam.playing || cam.name === state.activeName) btn.classList.add("playing");
     if (!cam.linkvisual) btn.classList.add("unsupported");
+    if (unavailable) {
+      btn.classList.add("unavailable");
+      btn.disabled = true;
+      btn.title = cam.lan_state === "remote"
+        ? "Outside this Mac’s local network"
+        : "No LAN address saved";
+    }
     btn.innerHTML = `<span class="chip-dot"></span><span>${escapeHtml(cam.name)}</span>`;
     btn.addEventListener("click", () => selectCamera(cam.name));
     bar.appendChild(btn);
@@ -152,10 +162,15 @@ function renderTiles() {
   for (const cam of state.cameras) {
     const tile = document.createElement("article");
     tile.className = "tile";
+    const unavailable = cam.lan_state !== "local" && cam.name !== state.activeName;
+    if (unavailable) tile.classList.add("unavailable");
     tile.dataset.name = cam.name;
-    tile.tabIndex = 0;
+    tile.tabIndex = unavailable ? -1 : 0;
     tile.setAttribute("role", "button");
-    tile.setAttribute("aria-label", `Start ${cam.name}`);
+    tile.setAttribute("aria-label", unavailable
+      ? `${cam.name} is not on the local network`
+      : `Start ${cam.name}`);
+    if (unavailable) tile.setAttribute("aria-disabled", "true");
 
     const slot = document.createElement("div");
     slot.className = "video-slot";
@@ -168,7 +183,9 @@ function renderTiles() {
 
     const hint = document.createElement("div");
     hint.className = "watch-hint";
-    hint.innerHTML = "<span>CLICK TO START</span>";
+    hint.innerHTML = unavailable
+      ? "<span>NOT ON LOCAL LAN</span>"
+      : "<span>CLICK TO START</span>";
     tile.appendChild(hint);
 
     const overlay = document.createElement("div");
@@ -191,8 +208,18 @@ function renderTiles() {
     overlay.querySelector(".full").addEventListener("click", act(() => goFullscreen()));
     overlay.querySelector(".snap").addEventListener("click", act(() => snapshot()));
 
-    tile.addEventListener("click", () => selectCamera(cam.name));
+    tile.addEventListener("click", () => {
+      if (unavailable) {
+        showToast(
+          `${cam.name} is not on this Mac's local network. Bind its LAN address in Settings.`,
+          true
+        );
+        return;
+      }
+      selectCamera(cam.name);
+    });
     tile.addEventListener("keydown", (e) => {
+      if (unavailable) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         selectCamera(cam.name);
@@ -229,13 +256,18 @@ function updateEmpty() {
   const title = empty.querySelector(".empty-title");
   const sub = empty.querySelector(".empty-sub");
   const background = Boolean(state.status && state.status.connected);
+  const hasLocal = state.cameras.some((c) => c.lan_state === "local");
   if (title && sub) {
-    title.textContent = background ? "Camera is on" : "Camera is off";
     if (background) {
+      title.textContent = "Camera is on";
       sub.textContent = state.selectedName
         ? `Press Start to view ${state.selectedName}, or Stop to turn it off.`
         : "Press Start to view, or Stop to turn it off.";
+    } else if (state.cameras.length && !hasLocal) {
+      title.textContent = "No local cameras";
+      sub.textContent = "Bind a camera’s LAN address in Settings or scan the local network.";
     } else {
+      title.textContent = "Camera is off";
       sub.textContent = state.selectedName
         ? `Press Start to watch ${state.selectedName}, or click a camera.`
         : "Press Start or click a camera to begin.";
@@ -290,6 +322,10 @@ function updateMeta() {
       label = "ON";
       cls = "badge starting";
       meta = "background";
+    } else if (cam && cam.lan_state && cam.lan_state !== "local") {
+      label = cam.lan_state === "remote" ? "REMOTE" : "NO LAN";
+      cls = "badge off";
+      meta = cam.lan_state === "remote" ? "outside local network" : "bind in Settings";
     }
     tile.classList.toggle("live", state.streamState === "live" && name === state.activeName);
     badge.className = cls;
@@ -302,6 +338,15 @@ function updateMeta() {
 /* ---------------------------------------------------------------- select */
 async function selectCamera(name) {
   if (!name || state.selecting) return;
+  const cam = state.cameras.find((c) => c.name === name);
+  if (!cam) return;
+  if (cam.lan_state !== "local") {
+    showToast(
+      `${name} is not on this Mac's local network. Bind its LAN address in Settings.`,
+      true
+    );
+    return;
+  }
   if (name === state.activeName && state.streamState === "live") return;
 
   state.selecting = true;
@@ -628,8 +673,9 @@ async function stopAll() {
 function startSelected() {
   if (state.selecting) return;
   const name = state.selectedName || autoCamera();
-  if (!name) {
-    showToast("No camera selected", true);
+  const cam = state.cameras.find((c) => c.name === name);
+  if (!name || !cam || cam.lan_state !== "local") {
+    showToast("No camera is on this Mac's local network. Bind one in Settings.", true);
     return;
   }
   state.selectedName = name;
@@ -643,11 +689,17 @@ function updateControls() {
   if (!start || !stop) return;
   const active = ["starting", "live", "reconnecting"].includes(state.streamState);
   const background = Boolean(state.status && state.status.connected);
-  start.disabled = active || state.selecting || !state.cameras.length;
+  const selected = state.cameras.find((c) => c.name === state.selectedName);
+  const local = Boolean(selected && selected.lan_state === "local");
+  start.disabled = active || state.selecting || !local;
   stop.disabled = !active && !background;
-  start.title = state.selectedName
-    ? `Start ${state.selectedName}`
-    : "Start the selected camera";
+  if (!selected) {
+    start.title = "No camera on the local network";
+  } else if (!local) {
+    start.title = `${selected.name} is not on the local network`;
+  } else {
+    start.title = `Start ${selected.name}`;
+  }
 }
 
 /* ---------------------------------------------------------------- status */
@@ -662,7 +714,12 @@ async function pollStatus() {
     } else if (state.streamState === "error") {
       setConn("Camera error", "offline");
     } else if (!st.connected) {
-      setConn("Camera off", "");
+      const hasLocal = state.cameras.some((c) => c.lan_state === "local");
+      if (!hasLocal && state.cameras.length) {
+        setConn("No local cameras", "offline");
+      } else {
+        setConn("Camera off", "");
+      }
     } else if (state.streamState === "live") {
       setConn("Live · local P2P", "live");
     } else {
@@ -710,12 +767,13 @@ function setMode(mode) {
 }
 
 function autoCamera() {
+  const local = state.cameras.filter((c) => c.lan_state === "local");
   const hash = decodeURIComponent((location.hash || "").replace(/^#/, "")).trim();
-  if (hash && state.cameras.some((c) => c.name === hash)) return hash;
+  if (hash && local.some((c) => c.name === hash)) return hash;
   const saved = localStorage.getItem("ec4.camera");
-  if (saved && state.cameras.some((c) => c.name === saved)) return saved;
-  const lv = state.cameras.find((c) => c.linkvisual);
-  return lv ? lv.name : state.cameras[0]?.name || null;
+  if (saved && local.some((c) => c.name === saved)) return saved;
+  const lv = local.find((c) => c.linkvisual);
+  return lv ? lv.name : local[0]?.name || null;
 }
 
 async function init() {

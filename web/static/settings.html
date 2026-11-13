@@ -83,8 +83,10 @@
     <div class="settings-card" id="configured-card">
       <h1>Your cameras</h1>
       <div class="settings-sub">
-        Only these cameras appear in the live view. Removing one also forgets
-        its saved LAN address; if it is streaming, the capture stops first.
+        Only these cameras appear in the live view. A camera can be started only
+        when its saved address is on one of this Mac’s local networks; use
+        <strong>Bind IP</strong> or the scan below to set it. Removing a camera
+        also forgets its address; if it is streaming, the capture stops first.
       </div>
       <div id="configured-list"><div class="scan-meta">Loading cameras…</div></div>
       <div id="configured-status" class="status"></div>
@@ -111,8 +113,8 @@
         <input id="add-iot" type="text" readonly>
       </div>
       <div class="field">
-        <label for="add-ip">LAN IP (optional)</label>
-        <input id="add-ip" type="text" placeholder="fill from a scan result">
+        <label for="add-ip">LAN IP (needed to start)</label>
+        <input id="add-ip" type="text" placeholder="fill from a scan result or router">
       </div>
       <div class="field">
         <label for="add-mac">MAC (optional)</label>
@@ -125,9 +127,10 @@
       <div class="note">
         The IoT ID is not derived from the LAN: it is the Alibaba identity of
         the cloud device. Only cameras returned by the account’s cloud list can
-        be added here. A “LAN saved” label means an address was bound earlier;
-        it does not prove the camera is awake. Sleeping battery cameras can be
-        absent from a scan.
+        be added here. A camera without a local LAN address is added but stays
+        disabled until it is bound. A “LAN saved” label means an address was
+        bound earlier; it does not prove the camera is awake. Sleeping battery
+        cameras can be absent from a scan.
       </div>
     </div>
 
@@ -137,6 +140,10 @@
         Scan the local network for camera-like hosts. Known camera IP/MACs are
         matched automatically; a new camera can be remembered from the results.
       </div>
+      <div class="field">
+        <label for="scan-network">Interface / network</label>
+        <select id="scan-network"><option value="">Automatic (default route)</option></select>
+      </div>
       <div class="row" style="margin-top:0">
         <button class="btn" type="button" id="scan-btn">Scan local network</button>
         <span id="scan-status" class="status" style="margin-top:0"></span>
@@ -144,7 +151,9 @@
       <div id="scan-results"></div>
       <div class="note">
         The scan is a local ARP/ping sweep plus TCP fingerprinting. It does not
-        use the cloud relay. Wake a battery camera first if it is asleep.
+        use the cloud relay. Pick the interface that reaches the camera, or
+        leave Automatic to follow the Mac’s default route. Wake a battery camera
+        first if it is asleep.
       </div>
     </div>
   </div>
@@ -222,21 +231,28 @@
           name.textContent = cam.name;
           main.appendChild(name);
           if (cam.playing) main.appendChild(badge("streaming", "camera"));
-          main.appendChild(cam.lan_ip
-            ? badge("LAN saved", "camera")
-            : badge("no LAN address", "possible"));
+          if (cam.lan_state === "local") main.appendChild(badge("local LAN", "camera"));
+          else if (cam.lan_state === "remote") main.appendChild(badge("outside LAN", "possible"));
+          else main.appendChild(badge("no LAN address", "possible"));
           const detail = document.createElement("div");
           detail.className = "scan-detail";
           const bits = [];
           if (cam.lan_ip) bits.push(cam.lan_ip);
           if (cam.lan_bound_at) bits.push("bound " + formatWhen(cam.lan_bound_at));
-          if (!bits.length) bits.push("use the scan below to bind an address");
+          if (cam.lan_state === "remote") bits.push("outside this Mac’s networks");
+          if (!bits.length) bits.push("use Bind IP or the scan below");
           detail.textContent = bits.join(" · ");
           main.appendChild(detail);
           row.appendChild(main);
 
           const actions = document.createElement("div");
           actions.className = "camera-actions";
+          const bind = document.createElement("button");
+          bind.className = "btn ghost";
+          bind.type = "button";
+          bind.textContent = cam.lan_ip ? "Change IP" : "Bind IP";
+          bind.addEventListener("click", () => bindCamera(cam));
+          actions.appendChild(bind);
           const remove = document.createElement("button");
           remove.className = "btn ghost danger";
           remove.type = "button";
@@ -251,6 +267,32 @@
         failed.className = "scan-meta";
         failed.textContent = err.message || "Could not read the local camera list.";
         list.appendChild(failed);
+      }
+    }
+    async function bindCamera(cam) {
+      const entered = window.prompt(
+        "LAN IP for " + cam.name + " (private address, e.g. 192.168.1.50)",
+        cam.lan_ip || ""
+      );
+      if (entered === null) return;
+      const ip = entered.trim();
+      if (!ip) {
+        configuredStatus("Enter a LAN IP for " + cam.name + ".", "err");
+        return;
+      }
+      configuredStatus("Binding " + cam.name + " to " + ip + "…");
+      try {
+        const r = await fetch("/api/scan/remember", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({name: cam.name, ip, mac: cam.lan_mac || ""}),
+        });
+        const data = await r.json();
+        if (!r.ok || data.ok === false) throw new Error(data.error || "bind failed");
+        configuredStatus("Bound " + cam.name + " to " + ip + ".", "ok");
+        await loadConfiguredCameras();
+      } catch (err) {
+        configuredStatus(err.message || "Could not bind the address.", "err");
       }
     }
     async function removeCamera(cam) {
@@ -433,15 +475,42 @@
       }
       return row;
     }
+    async function loadScanInterfaces() {
+      const select = $("scan-network");
+      try {
+        const r = await fetch("/api/scan/interfaces", {cache: "no-store"});
+        const data = await r.json();
+        if (!r.ok || data.ok === false) return;
+        const current = select.value;
+        select.textContent = "";
+        const auto = document.createElement("option");
+        auto.value = "";
+        auto.textContent = "Automatic (default route)";
+        select.appendChild(auto);
+        for (const item of data.interfaces || []) {
+          const opt = document.createElement("option");
+          opt.value = item.cidr;
+          opt.textContent = (item.name ? item.name + " — " : "") + item.cidr;
+          select.appendChild(opt);
+        }
+        if (current && [...select.options].some((opt) => opt.value === current)) {
+          select.value = current;
+        }
+      } catch (_) {
+        // Keep the automatic option; scanning still works without the picker.
+      }
+    }
     async function runScan() {
       const button = $("scan-btn");
       const results = $("scan-results");
+      const cidr = $("scan-network").value;
       button.disabled = true;
       button.textContent = "Scanning…";
-      scanStatus("Scanning the local subnet…");
+      scanStatus("Scanning " + (cidr || "the default local subnet") + "…");
       results.textContent = "";
       try {
-        const r = await fetch("/api/scan", {cache: "no-store"});
+        const url = cidr ? "/api/scan?cidr=" + encodeURIComponent(cidr) : "/api/scan";
+        const r = await fetch(url, {cache: "no-store"});
         const data = await r.json();
         if (!r.ok || data.ok === false) throw new Error(data.error || "scan failed");
         scanStatus(data.cidr + " · " + data.hosts.length + " hosts · " + data.duration + "s", "ok");
@@ -549,6 +618,7 @@
     refresh();
     loadCloudCameras();
     loadConfiguredCameras();
+    loadScanInterfaces();
   </script>
 </body>
 </html>

@@ -227,27 +227,86 @@ def remove_camera(name: str) -> dict:
     return {"name": name, "iot_id": iot_id, "forgot_host": forgot_host}
 
 
-def _lan_network() -> ipaddress.IPv4Network | None:
-    """Return the actual IPv4 network for the interface owning ``lan_ip()``."""
-    local = lan_ip()
+def local_networks() -> list[dict[str, str]]:
+    """Return active private IPv4 interface networks from ``ifconfig``.
+
+    Each entry is ``{"name", "ip", "netmask", "cidr"}``.  This is the list the
+    scan picker offers and the list used to decide whether a camera is local.
+    """
+    result: list[dict[str, str]] = []
+    seen: set[str] = set()
     try:
         output = subprocess.run(
             ["ifconfig"], capture_output=True, text=True, timeout=3
         ).stdout
     except Exception:
-        return None
+        output = ""
+
+    interface = ""
     for line in output.splitlines():
+        if line and not line[0].isspace():
+            interface = line.split(":", 1)[0].strip()
+            continue
         match = re.search(
             r"\binet (\d+\.\d+\.\d+\.\d+) netmask (0x[0-9a-fA-F]+)", line
         )
-        if not match or match.group(1) != local:
+        if not match:
             continue
         try:
+            address = ipaddress.ip_address(match.group(1))
             mask = ipaddress.IPv4Address(int(match.group(2), 16))
-            return ipaddress.IPv4Network(f"{local}/{mask}", strict=False)
+            network = ipaddress.IPv4Network(f"{address}/{mask}", strict=False)
         except ValueError:
-            return None
-    return None
+            continue
+        if address.is_loopback or address.is_link_local or not address.is_private:
+            continue
+        key = str(network)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append({
+            "name": interface,
+            "ip": str(address),
+            "netmask": str(mask),
+            "cidr": str(network),
+        })
+
+    if not result:
+        try:
+            address = ipaddress.ip_address(lan_ip())
+            if address.is_private and not address.is_loopback:
+                network = ipaddress.ip_network(f"{address}/24", strict=False)
+                result.append({
+                    "name": "",
+                    "ip": str(address),
+                    "netmask": "255.255.255.0",
+                    "cidr": str(network),
+                })
+        except ValueError:
+            pass
+    return sorted(result, key=lambda item: (item["cidr"], item["name"]))
+
+
+def lan_state(name: str, networks: list[dict[str, str]] | None = None) -> str:
+    """Return ``local``, ``remote`` or ``unbound`` for a camera."""
+    meta = host_map().get((name or "").strip()) or {}
+    saved = str(meta.get("ip") or "").strip()
+    if not saved:
+        return "unbound"
+    try:
+        address = ipaddress.ip_address(saved)
+    except ValueError:
+        return "unbound"
+    if not address.is_private:
+        return "remote"
+    nets = networks if networks is not None else local_networks()
+    for item in nets:
+        try:
+            if address in ipaddress.ip_network(item["cidr"]):
+                return "local"
+        except ValueError:
+            continue
+    return "remote"
 
 
 def lan_mismatch(name: str) -> str:
@@ -256,29 +315,12 @@ def lan_mismatch(name: str) -> str:
     A sleeping battery camera can be missing from a scan, so this deliberately
     checks only network membership.  It never pings the camera.
     """
+    if lan_state(name) != "remote":
+        return ""
     meta = host_map().get((name or "").strip()) or {}
     saved = str(meta.get("ip") or "").strip()
-    if not saved:
-        return ""
-    try:
-        local = ipaddress.ip_address(lan_ip())
-        camera = ipaddress.ip_address(saved)
-    except ValueError:
-        return ""
-    if not camera.is_private:
-        return ""
-    if not local.is_private:
-        return (
-            f"{name} has a saved LAN address {saved}; this Mac is not on that "
-            "LAN. Reconnect to the camera network or rescan to rebind it."
-        )
-    network = _lan_network()
-    if network is None:
-        network = ipaddress.ip_network(f"{local}/24", strict=False)
-    if camera in network:
-        return ""
     return (
         f"{name} has a saved LAN address {saved}, which is not on this Mac's "
-        f"network ({network.with_prefixlen}). Reconnect the Mac to the camera "
-        "LAN or rescan to rebind it."
+        "local network. Reconnect the Mac to the camera LAN or rescan to "
+        "rebind it."
     )

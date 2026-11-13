@@ -59,6 +59,7 @@ class AppState:
         self.camera_names = names
         active = self.capture.selected_camera
         hosts = ec4_config.host_map()
+        networks = ec4_config.local_networks()
         cameras = []
         for name in names:
             host = hosts.get(name) or {}
@@ -69,7 +70,9 @@ class AppState:
                 "active": name == active,
                 "linkvisual": True,
                 "lan_ip": str(host.get("ip") or ""),
+                "lan_mac": str(host.get("mac") or ""),
                 "lan_bound_at": str(host.get("last_seen") or ""),
+                "lan_state": ec4_config.lan_state(name, networks),
             })
         return {"ok": True, "cameras": cameras, "active": active}
 
@@ -252,6 +255,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/status":
             self._json(STATE.status())
+            return
+        if path == "/api/scan/interfaces":
+            self._json({"ok": True, "interfaces": ec4_config.local_networks()})
             return
         if path == "/api/scan":
             query = urllib.parse.parse_qs(parsed.query)
