@@ -160,6 +160,7 @@
   </div>
   <script>
     const $ = (id) => document.getElementById(id);
+    let batteryByCamera = {};
     function show(text, cls) {
       const el = $("status");
       el.textContent = text;
@@ -195,6 +196,16 @@
       const el = $("configured-status");
       el.textContent = text;
       el.className = "status" + (cls ? " " + cls : "");
+    }
+    async function loadBattery() {
+      try {
+        const r = await fetch("/api/battery", {cache: "no-store"});
+        const data = await r.json();
+        if (r.ok && data.ok !== false) batteryByCamera = data.battery || {};
+      } catch (_) {
+        // Battery is optional; leave the last known values in place.
+      }
+      loadConfiguredCameras();
     }
     function formatWhen(value) {
       if (!value) return "";
@@ -241,6 +252,15 @@
           if (cam.lan_ip) bits.push(cam.lan_ip);
           if (cam.lan_bound_at) bits.push("bound " + formatWhen(cam.lan_bound_at));
           if (cam.lan_state === "remote") bits.push("outside this Mac’s networks");
+          const batt = batteryByCamera[cam.name];
+          if (batt && Number.isFinite(Number(batt.level))) {
+            let label = "battery " + Math.round(Number(batt.level)) + "%";
+            const volts = Number(batt.voltage);
+            if (Number.isFinite(volts) && volts > 0) {
+              label += " (" + (volts / 1000).toFixed(2) + " V)";
+            }
+            bits.push(label);
+          }
           if (!bits.length) bits.push("use Bind IP or the scan below");
           detail.textContent = bits.join(" · ");
           main.appendChild(detail);
@@ -619,6 +639,7 @@
     refresh();
     loadCloudCameras();
     loadConfiguredCameras();
+    loadBattery();
     loadScanInterfaces();
   </script>
 </body>

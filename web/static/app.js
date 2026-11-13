@@ -30,7 +30,9 @@ const state = {
   codecPref: localStorage.getItem("ec4.codec") || "auto",
   mode: localStorage.getItem("ec4.mode") || "grid",
   status: null,
+  battery: {},
   pollTimer: null,
+  batteryTimer: null,
 };
 
 /* ---------------------------------------------------------------- helpers */
@@ -185,6 +187,16 @@ async function loadCameras(force = false) {
   return data;
 }
 
+async function loadBattery(force = false) {
+  try {
+    const data = await api("/api/battery" + (force ? "?refresh=1" : ""));
+    state.battery = data.battery || {};
+  } catch (_) {
+    // Keep the last known values when the cloud is unavailable.
+  }
+  updateMeta();
+}
+
 function renderChips() {
   const bar = $("#camera-bar");
   bar.innerHTML = "";
@@ -248,7 +260,7 @@ function renderTiles() {
     overlay.innerHTML = `
       <div>
         <div class="tile-name">${escapeHtml(cam.name)}</div>
-        <div class="tile-meta"><span class="badge off"><i class="dot"></i><span class="badge-text">OFFLINE</span></span><span class="res"></span></div>
+        <div class="tile-meta"><span class="badge off"><i class="dot"></i><span class="badge-text">OFFLINE</span></span><span class="res"></span><span class="battery hidden"></span></div>
       </div>
       <div class="tile-actions">
         <button class="icon-btn snap" type="button" title="Save snapshot">⤓</button>
@@ -392,6 +404,30 @@ function updateMeta() {
     badge.className = cls;
     text.textContent = label;
     res.textContent = meta;
+
+    const batteryEl = tile.querySelector(".battery");
+    if (batteryEl) {
+      const info = state.battery[name];
+      const level = info ? Number(info.level) : NaN;
+      if (Number.isFinite(level)) {
+        const pct = Math.max(0, Math.min(100, Math.round(level)));
+        batteryEl.innerHTML =
+          `<span class="battery-shell"><i style="width:${pct}%"></i></span>`
+          + `<span>${pct}%</span>`;
+        batteryEl.classList.remove("hidden");
+        batteryEl.classList.toggle("low", pct <= 20);
+        batteryEl.classList.toggle("warn", pct > 20 && pct <= 40);
+        const volts = info ? Number(info.voltage) : NaN;
+        batteryEl.title = Number.isFinite(volts) && volts > 0
+          ? `Battery ${pct}% · ${(volts / 1000).toFixed(2)} V`
+          : `Battery ${pct}%`;
+      } else {
+        batteryEl.classList.add("hidden");
+        batteryEl.classList.remove("low", "warn");
+        batteryEl.innerHTML = "";
+        batteryEl.title = "";
+      }
+    }
   }
   renderChips();
 }
@@ -932,6 +968,7 @@ async function init() {
     setBusy(true, "Scanning camera list…");
     try {
       const data = await loadCameras(true);
+      await loadBattery(true);
       if (data && data.warning) showToast(data.warning, true);
       else if (data) showToast("Camera list refreshed");
     } finally {
@@ -967,8 +1004,10 @@ async function init() {
   if (!state.selectedName) state.selectedName = autoCamera();
   updateEmpty();
   updateControls();
+  loadBattery();
   pollStatus();
   state.pollTimer = setInterval(pollStatus, 2000);
+  state.batteryTimer = setInterval(() => loadBattery(false), 60000);
 }
 
 init().catch((err) => {

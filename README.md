@@ -163,6 +163,11 @@ Changing the selector while a camera is live applies after **Stop** and
 **Start**.  If the browser cannot decode the resulting codec, the tile reports
 the MSE error instead of silently switching.
 
+Each tile also shows the camera’s last cloud-reported **battery percentage**
+and voltage (on hover).  The helper caches battery properties for about 90
+seconds and falls back to the last known value when the cloud is unavailable.
+This uses the IoT property API, not the video stream.
+
 Sign in once at <http://127.0.0.1:8765/settings> with the Imilab account
 password.  This populates the OS credential store and creates the Alibaba IoT
 credential pair.  After that the helper refreshes the IoT token and falls back

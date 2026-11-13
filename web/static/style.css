@@ -198,7 +198,37 @@ body { min-height: 100vh; }
   pointer-events: none;
 }
 .tile-name { font-size: 14px; font-weight: 750; letter-spacing: 0.02em; text-shadow: 0 1px 8px rgba(0,0,0,0.7); }
-.tile-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 11px; color: #b8c7d8; }
+.tile-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 4px; font-size: 11px; color: #b8c7d8; }
+.battery { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 650; color: #b8c7d8; pointer-events: auto; }
+.battery.hidden { display: none; }
+.battery.warn { color: var(--amber); }
+.battery.low { color: var(--red); }
+.battery-shell {
+  position: relative;
+  display: inline-block;
+  width: 15px;
+  height: 8px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+.battery-shell::after {
+  content: "";
+  position: absolute;
+  right: -4px;
+  top: 1px;
+  width: 2px;
+  height: 4px;
+  background: currentColor;
+  border-radius: 0 1px 1px 0;
+}
+.battery-shell i {
+  display: block;
+  height: 100%;
+  background: var(--green);
+  border-radius: 1px;
+}
+.battery.warn .battery-shell i { background: var(--amber); }
+.battery.low .battery-shell i { background: var(--red); }
 .badge {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 10px; font-weight: 800; letter-spacing: 0.14em;

@@ -81,6 +81,10 @@ The top-bar codec selector applies on the next **Start**:
 * **H.265 passthrough** copies the camera’s HEVC bitstream without conversion
   or scaling.  The browser must support HEVC in MSE.
 
+Camera tiles show the last reported battery percentage from the cloud
+`thing/properties/get` API, with voltage on hover.  The helper caches those
+values for about 90 seconds; opening a live stream is not required.
+
 ## 4. Add and remove cameras
 
 Open `/settings` → **Add a camera**:
@@ -135,6 +139,8 @@ camera still starts normally.
 * Camera shows **NO LAN** or **REMOTE** — it has no saved address or its
   address is outside this host’s networks. Use **Bind IP** or scan the correct
   interface, or remove it under **Settings → Your cameras**.
+* Battery percentage is blank — sign in so the IoT token is valid; some camera
+  models do not report `BatteryLevel` in their property set.
 * Cloud list or login failures — run `python tools/imi_login.py --status`, then
   sign in through `/settings`.
 * H.265 tile stays black or reports a codec error — the browser/OS lacks HEVC

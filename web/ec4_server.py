@@ -32,12 +32,14 @@ from ec4_direct import DirectCapture
 from ec4_encoder import CaptureError, MSE_CODEC
 import imi_login
 import imi_auth
+import iot_auth
 import ec4_config
 import ec4_scan
 
 WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(WEB_DIR, "static")
 DEFAULT_PORT = int(os.environ.get("EC4_PORT", "8765"))
+BATTERY_TTL = 90.0
 
 
 class AppState:
@@ -48,6 +50,9 @@ class AppState:
         self.started_at = time.time()
         self.session_token = ""
         self.camera_names = list(ec4_config.camera_ids())
+        self.battery_lock = threading.Lock()
+        self.battery_rows: dict[str, dict[str, Any]] = {}
+        self.battery_at = 0.0
 
     def log(self, message: str) -> None:
         line = time.strftime("%H:%M:%S ") + str(message)
@@ -76,6 +81,105 @@ class AppState:
                 "lan_state": ec4_config.lan_state(name, networks),
             })
         return {"ok": True, "cameras": cameras, "active": active}
+
+    @staticmethod
+    def _battery_from_properties(data: dict[str, Any]) -> dict[str, Any] | None:
+        def value(key: str) -> Any:
+            item = data.get(key)
+            return item.get("value") if isinstance(item, dict) else item
+
+        raw_level = value("BatteryLevel")
+        if raw_level is None:
+            return None
+        try:
+            level = max(0, min(100, int(float(raw_level))))
+        except (TypeError, ValueError):
+            return None
+
+        raw_voltage = value("BatteryVoltage")
+        voltage = None
+        try:
+            if raw_voltage is not None:
+                voltage = int(float(raw_voltage))
+        except (TypeError, ValueError):
+            pass
+
+        return {
+            "level": level,
+            "voltage": voltage,
+            "low": level <= 20,
+            "updated": time.time(),
+        }
+
+    def battery(self, force: bool = False) -> dict[str, Any]:
+        """Return cached cloud battery values for the configured cameras."""
+        now = time.time()
+        with self.battery_lock:
+            if (
+                not force
+                and self.battery_rows
+                and now - self.battery_at < BATTERY_TTL
+            ):
+                return {
+                    "ok": True,
+                    "battery": self.battery_rows,
+                    "updated": self.battery_at,
+                    "cached": True,
+                }
+
+            cameras = ec4_config.camera_ids()
+            if not cameras:
+                self.battery_rows = {}
+                self.battery_at = now
+                return {
+                    "ok": True,
+                    "battery": {},
+                    "updated": now,
+                    "cached": False,
+                }
+
+            try:
+                imi_login.ensure_iot_token()
+                token = str(iot_auth.load_creds().get("iotToken") or "")
+                if not token:
+                    raise RuntimeError("no IoT token")
+            except Exception as exc:
+                if self.battery_rows:
+                    return {
+                        "ok": True,
+                        "battery": self.battery_rows,
+                        "updated": self.battery_at,
+                        "cached": True,
+                        "error": str(exc),
+                    }
+                return {"ok": False, "error": str(exc)}
+
+            rows: dict[str, dict[str, Any]] = {}
+            for name, iot_id in cameras.items():
+                try:
+                    result = iot_auth.thing_properties_get(iot_id, token)
+                    if int(result.get("status") or 0) != 200:
+                        raise RuntimeError(
+                            f"properties HTTP {result.get('status')}"
+                        )
+                    payload = json.loads(result.get("body") or "{}")
+                    row = self._battery_from_properties(
+                        payload.get("data") or {}
+                    )
+                    if row is None:
+                        raise RuntimeError("BatteryLevel missing")
+                    rows[name] = row
+                except Exception as exc:
+                    rows[name] = {"error": str(exc)}
+
+            self.battery_rows = rows
+            self.battery_at = now
+            return {
+                "ok": True,
+                "battery": rows,
+                "updated": now,
+                "cached": False,
+            }
 
     # -- select -------------------------------------------------------------
     def select(
@@ -258,6 +362,11 @@ class Handler(BaseHTTPRequestHandler):
             query = urllib.parse.parse_qs(parsed.query)
             force = query.get("force", ["0"])[0] in ("1", "true", "yes")
             self._json(STATE.cameras(force=force))
+            return
+        if path == "/api/battery":
+            query = urllib.parse.parse_qs(parsed.query)
+            force = query.get("refresh", ["0"])[0] in ("1", "true", "yes")
+            self._json(STATE.battery(force=force))
             return
         if path == "/api/status":
             self._json(STATE.status())
