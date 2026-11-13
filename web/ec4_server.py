@@ -4,8 +4,8 @@
 Open http://127.0.0.1:8765/ on the Mac.  The direct path opens the camera with
 the private relay viewer, receives RTP on the Mac, and streams browser-friendly
 H.264 fMP4 or an H.265 passthrough.  A Settings page provides a normal Imilab
-login form; credentials
-live in the macOS Keychain, never in a cookie.
+login form; credentials live in the operating system credential store, never
+in a cookie.
 
 Run with ../run_web.sh (or double-click ../EC4 Web.command).
 """
@@ -19,12 +19,12 @@ import os
 import secrets
 import socket
 import struct
-import subprocess
 import sys
 import threading
 import time
 import traceback
 import urllib.parse
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional
 
@@ -512,7 +512,7 @@ def main() -> int:
 
     if not args.no_open:
         threading.Thread(
-            target=lambda: (time.sleep(0.6), subprocess.run(["open", url])),
+            target=lambda: (time.sleep(0.6), webbrowser.open(url)),
             daemon=True,
         ).start()
 

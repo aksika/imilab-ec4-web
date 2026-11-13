@@ -1,7 +1,7 @@
 """Imilab username/password login for the local EC4 helper.
 
 The page is a normal login form.  The helper validates the password against
-Imilab, stores it in the macOS Keychain, refreshes the Imilab token, and tries
+Imilab, stores it in the OS credential store, refreshes the Imilab token, and tries
 to exchange the resulting session for Alibaba IoT credentials.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-import mac_keychain
+import credentials
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 import ec4_config  # noqa: E402
@@ -333,8 +333,8 @@ def login(username: str, password: str) -> dict:
         merged["identityId"] = old["identityId"]
     imi_auth.save_tokens(merged)
 
-    # The password is valid; only now put it in Keychain.
-    mac_keychain.set_credentials(username, password)
+    # The password is valid; only now put it in the credential store.
+    credentials.set_credentials(username, password)
 
     iot_ok = False
     iot_error = ""
@@ -364,7 +364,7 @@ def login(username: str, password: str) -> dict:
 def status() -> dict:
     imi = imi_auth.load_tokens()
     iot = iot_auth.load_creds()
-    username = mac_keychain.get_username()
+    username = credentials.get_username()
     return {
         "username": username,
         "has_keychain": bool(username),
@@ -407,7 +407,7 @@ def ensure_iot_token() -> dict:
     try:
         return refresh_iot()
     except Exception:
-        creds = mac_keychain.get_credentials()
+        creds = credentials.get_credentials()
         if not creds:
             raise
         login(*creds)
@@ -415,7 +415,7 @@ def ensure_iot_token() -> dict:
 
 
 def logout() -> None:
-    mac_keychain.delete_credentials()
+    credentials.delete_credentials()
     for path in (
         os.path.expanduser("~/.ec4/imi_tokens.json"),
         os.path.expanduser("~/.ec4/iot_creds.json"),

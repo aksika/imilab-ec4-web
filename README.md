@@ -29,6 +29,8 @@ Media does not go through the cloud relay.
 | `tools/iot_auth.py` | Alibaba IoT API auth/stream query |
 | `tools/imi_auth.py` | Imilab session token refresh |
 | `tools/imi_login.py` | Imilab password login + OpenAccount/IoT exchange |
+| `tools/credentials.py` | OS credential-store storage for the login helper |
+| `run_web.py` | cross-platform launcher (venv, config, server) |
 | `docs/ARCHITECTURE.md` | public-safe architecture and limitations |
 | `docs/SETUP.md` | configuration, running, camera adding, troubleshooting |
 
@@ -89,6 +91,10 @@ file.
 * A browser with HEVC support in Media Source Extensions for H.265 passthrough
 * Local network access to the camera and hub
 
+On Linux, install `iproute2` and `iputils-ping` if they are not already
+present.  Debian/Ubuntu also need `python3-venv` for the launcher.  The H.264
+path needs an ffmpeg build with libx264; H.265 passthrough does not.
+
 `run_web.sh` creates `.venv` and installs:
 
 ```text
@@ -100,22 +106,33 @@ If you start `web/ec4_server.py` directly, install those packages yourself.
 ## Platform support
 
 The capture, relay, RTP, and ffmpeg pipeline are Python/socket based and are not
-tied to a particular desktop OS.  The current release is developed and tested
-on macOS.  The remaining OS-specific pieces are small adapters:
+tied to a particular desktop OS.
 
-* the credential wrapper (`mac_keychain.py`) — it already uses the portable
-  `keyring` API, but needs a rename and a backend check that is not
-  macOS-specific;
-* interface discovery (`ifconfig`) and the LAN scan (`arp`/`ping` flags);
-* the shell/`.command` launchers and the macOS `open` command;
-* the viewer log path under `/tmp`.
+* **macOS** — primary development platform, including the `EC4 Web.command`
+  convenience launcher.
+* **Linux** — minimal support. Interface discovery uses `ip -4 -o addr show`
+  (falling back to `ifconfig`), the LAN scan uses `ip neigh` and GNU `ping`,
+  browser opening uses `webbrowser`, and the viewer log uses the system temp
+  directory. Start it with `python3 run_web.py`.
+* **Windows** — not yet supported. The remaining work is Windows ARP/ping
+  parsing (`arp -a`, `ping -n/-w`), interface discovery via `ipconfig`, and
+  launcher/firewall testing.
 
-Linux needs replacements for those adapters.  Windows additionally needs
-Windows ARP/ping parsing and launcher handling.  H.265 passthrough itself is
-portable: it is ffmpeg `-c:v copy` plus Python sockets; H.264 output only needs
-an ffmpeg build with libx264.
+H.265 passthrough itself is portable: it is ffmpeg `-c:v copy` plus Python
+sockets. H.264 output only needs an ffmpeg build with libx264. Linux has the
+adapters implemented but still needs testing on real camera hardware; macOS
+remains the reference platform.
 
 ## Run
+
+```sh
+python3 run_web.py
+```
+
+The launcher creates `.venv`, installs dependencies, seeds
+`~/.ec4/config.json`, and starts the server.  On a headless Linux host, use
+`python3 run_web.py --no-open`; the server binds `127.0.0.1` by default.  On
+macOS/Linux the shell launcher is equivalent:
 
 ```sh
 ./run_web.sh

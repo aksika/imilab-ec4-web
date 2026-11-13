@@ -1,12 +1,11 @@
-"""macOS Keychain storage for the local EC4 helper.
+"""Operating-system credential storage for the local EC4 helper.
 
-The browser never stores the camera-cloud password in a cookie or localStorage.
-The helper owns it here; the web page is just a normal login form, so the
-browser's password manager can also offer to save it if the user wants.
+`keyring` selects the native backend: Keychain on macOS, Credential Manager on
+Windows, and Secret Service/KWallet on Linux.  The browser never stores the
+camera-cloud password in a cookie or localStorage; the helper owns it here.
 """
 from __future__ import annotations
 
-import json
 import keyring
 
 SERVICE = "ec4-imilab"
@@ -45,8 +44,14 @@ def delete_credentials() -> None:
         pass
 
 
-def keychain_available() -> bool:
+def store_available() -> bool:
+    """Return whether keyring selected a usable backend."""
     try:
-        return keyring.get_keyring().__class__.__name__ == "Keyring"
+        backend = keyring.get_keyring()
+        return backend is not None and getattr(backend, "priority", 0) > 0
     except Exception:
         return False
+
+
+# Backwards-compatible name for older callers.
+keychain_available = store_available

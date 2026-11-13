@@ -28,6 +28,10 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 import ec4_config  # noqa: E402
 
 ARP_RE = re.compile(r"\(([0-9.]+)\) at ([0-9a-fA-F:]+)")
+IP_NEIGH_RE = re.compile(
+    r"^(\d+\.\d+\.\d+\.\d+).*?\blladdr\s+([0-9a-fA-F:]{17})\b",
+    re.MULTILINE,
+)
 PORTS = (80, 443, 554, 1883, 8000, 8080, 8443, 8554, 9000)
 
 
@@ -41,25 +45,58 @@ def _norm_mac(mac: str) -> str:
         return mac.lower()
 
 
-def _arp_table() -> dict[str, str]:
-    try:
-        out = subprocess.run(
-            ["arp", "-an"], capture_output=True, text=True, timeout=4
-        ).stdout
-    except Exception:
-        return {}
+def _parse_ip_neigh(output: str) -> dict[str, str]:
     result: dict[str, str] = {}
-    for ip, mac in ARP_RE.findall(out):
+    for ip, mac in IP_NEIGH_RE.findall(output):
         mac = _norm_mac(mac)
         if mac and mac != "ff:ff:ff:ff:ff:ff":
             result[ip] = mac
     return result
 
 
+def _parse_arp_an(output: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for ip, mac in ARP_RE.findall(output):
+        mac = _norm_mac(mac)
+        if mac and mac != "ff:ff:ff:ff:ff:ff":
+            result[ip] = mac
+    return result
+
+
+def _arp_table() -> dict[str, str]:
+    # Linux: iproute2 neighbor table.  The net-tools arp output is the fallback.
+    if sys.platform.startswith("linux"):
+        try:
+            out = subprocess.run(
+                ["ip", "neigh", "show"], capture_output=True, text=True, timeout=4
+            ).stdout
+        except Exception:
+            out = ""
+        result = _parse_ip_neigh(out)
+        if result:
+            return result
+    try:
+        out = subprocess.run(
+            ["arp", "-an"], capture_output=True, text=True, timeout=4
+        ).stdout
+    except Exception:
+        return {}
+    return _parse_arp_an(out)
+
+
+def _ping_cmd(ip: str) -> list[str]:
+    if os.name == "nt":
+        return ["ping", "-n", "1", "-w", "250", ip]
+    if sys.platform == "darwin":
+        return ["ping", "-c", "1", "-W", "250", ip]
+    # Linux/iputils: -W is a timeout in seconds.
+    return ["ping", "-c", "1", "-W", "1", ip]
+
+
 def _ping(ip: str) -> bool:
     try:
         return subprocess.run(
-            ["ping", "-c", "1", "-W", "250", ip],
+            _ping_cmd(ip),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=1.5,
@@ -88,7 +125,15 @@ def _network(cidr: str | None) -> ipaddress.IPv4Network:
         net = ipaddress.ip_network(cidr, strict=False)
     else:
         local = ec4_config.lan_ip()
-        net = ipaddress.ip_network(f"{local}/24", strict=False)
+        cidr = next(
+            (
+                item["cidr"]
+                for item in ec4_config.local_networks()
+                if item["ip"] == local
+            ),
+            "",
+        )
+        net = ipaddress.ip_network(cidr or f"{local}/24", strict=False)
     if net.version != 4 or not net.is_private:
         raise ValueError("refusing to scan a non-private IPv4 network")
     if net.num_addresses > 512:

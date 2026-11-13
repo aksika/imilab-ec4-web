@@ -2,12 +2,16 @@
 
 ## 1. Requirements
 
-* macOS
+* macOS, or Linux with minimal support
 * Python 3.10+
-* `ffmpeg` with `libx264` for the H.264 path (`brew install ffmpeg`); the
-  H.265 passthrough mode only needs ffmpeg’s built-in HEVC muxer
+* `ffmpeg` with `libx264` for the H.264 path; the H.265 passthrough mode only
+  needs ffmpeg’s built-in HEVC muxer
+* A working `keyring` backend for the login password
 * A browser with HEVC support in Media Source Extensions for H.265 passthrough
 * Network access to the camera and hub
+
+On Linux, install `iproute2` and `iputils-ping` if they are not already
+present.  Debian/Ubuntu also need `python3-venv` for the launcher.
 
 The launcher creates `.venv` and installs:
 
@@ -52,19 +56,22 @@ Tokens are written to:
 ~/.ec4/iot_creds.json     mode 0600
 ```
 
-The login password is stored in the macOS Keychain (service `ec4-imilab`).
+The login password is stored in the operating system credential store
+(service `ec4-imilab`): Keychain on macOS, Credential Manager on Windows, or
+Secret Service/KWallet on Linux.
 
 ## 3. Run
 
 ```sh
-./run_web.sh
+python3 run_web.py
 ```
 
-or double-click `EC4 Web.command`.
+On macOS/Linux, `./run_web.sh` is equivalent.  macOS users can also
+double-click `EC4 Web.command`.
 
 Open <http://127.0.0.1:8765/>.  Sign in once at `/settings` with the Imilab
 account password.  The helper refreshes the cloud credentials and stores the
-password in Keychain.
+password in the system credential store.
 
 The top-bar codec selector applies on the next **Start**:
 
@@ -89,7 +96,7 @@ scan can also bind a discovered host.  Removing the active camera stops its
 capture first.  Removal deletes the entry from `~/.ec4/config.json` and its
 address from `~/.ec4/camera_hosts.json`.
 
-A camera with no saved address, or an address outside the Mac’s local
+A camera with no saved address, or an address outside the host’s local
 networks, is shown as **NO LAN** or **REMOTE** and cannot be started.  The
 main page re-reads `~/.ec4/config.json` on Refresh; no server restart is
 needed for a newly added or removed camera.
@@ -100,13 +107,13 @@ needed for a newly added or removed camera.
 and TCP fingerprinting.  It matches saved camera IP/MACs from
 `~/.ec4/camera_hosts.json`; unknown camera-like hosts can be remembered.
 
-The **Interface / network** picker lists the Mac’s active private IPv4
+The **Interface / network** picker lists the host’s active private IPv4
 interfaces.  Choosing one scans that interface’s subnet (`cidr`); **Automatic**
 follows the default route.  The scan is local-only and does not use the cloud
 relay.  A battery camera may be asleep and absent from a scan even when it is
 local.
 
-Starting a camera whose saved address is outside all of the Mac’s local
+Starting a camera whose saved address is outside all of the host’s local
 networks fails immediately with a rebind message.  This rejects cameras that
 belong to another location without waiting for a stream timeout.  The check
 uses network membership only and never pings the camera, so a sleeping local
@@ -117,7 +124,7 @@ camera still starts normally.
 * **Cold start needs internet.**  Starting or switching a camera requires the
   cloud stream query, relay, and signal negotiation.  The media itself is
   local once running.
-* The direct path is for cameras on the **same LAN** as the Mac.  Remote-home
+* The direct path is for cameras on the **same LAN** as the host.  Remote-home
   access via Tailscale is not supported by this transport; run a helper on the
   remote LAN instead.
 * Only one camera stream is opened at a time.
@@ -126,7 +133,7 @@ camera still starts normally.
 
 * No cameras in the page — check `cameras` in `~/.ec4/config.json`.
 * Camera shows **NO LAN** or **REMOTE** — it has no saved address or its
-  address is outside this Mac’s networks. Use **Bind IP** or scan the correct
+  address is outside this host’s networks. Use **Bind IP** or scan the correct
   interface, or remove it under **Settings → Your cameras**.
 * Cloud list or login failures — run `python tools/imi_login.py --status`, then
   sign in through `/settings`.

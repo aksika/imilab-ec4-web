@@ -13,6 +13,7 @@ import ipaddress
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 from datetime import datetime
@@ -227,61 +228,132 @@ def remove_camera(name: str) -> dict:
     return {"name": name, "iot_id": iot_id, "forgot_host": forgot_host}
 
 
-def local_networks() -> list[dict[str, str]]:
-    """Return active private IPv4 interface networks from ``ifconfig``.
+def _append_network(
+    result: list[dict[str, str]],
+    seen: set[str],
+    name: str,
+    address: ipaddress.IPv4Address,
+    network: ipaddress.IPv4Network,
+) -> None:
+    if address.is_loopback or address.is_link_local or not address.is_private:
+        return
+    key = str(network)
+    if key in seen:
+        return
+    seen.add(key)
+    result.append({
+        "name": name,
+        "ip": str(address),
+        "netmask": str(network.netmask),
+        "cidr": key,
+    })
 
-    Each entry is ``{"name", "ip", "netmask", "cidr"}``.  This is the list the
-    scan picker offers and the list used to decide whether a camera is local.
-    """
+
+def _networks_from_ip_addr(output: str) -> list[dict[str, str]]:
+    """Parse ``ip -4 -o addr show`` (Linux/iproute2)."""
     result: list[dict[str, str]] = []
     seen: set[str] = set()
-    try:
-        output = subprocess.run(
-            ["ifconfig"], capture_output=True, text=True, timeout=3
-        ).stdout
-    except Exception:
-        output = ""
+    for line in output.splitlines():
+        match = re.match(
+            r"^\d+:\s+(\S+)\s+inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)\s", line
+        )
+        if not match:
+            continue
+        try:
+            address = ipaddress.ip_address(match.group(2))
+            network = ipaddress.IPv4Network(
+                f"{address}/{match.group(3)}", strict=False
+            )
+        except ValueError:
+            continue
+        _append_network(
+            result, seen, match.group(1).split("@", 1)[0], address, network
+        )
+    return result
 
+
+def _networks_from_ifconfig(output: str) -> list[dict[str, str]]:
+    """Parse macOS/Linux ``ifconfig`` output."""
+    result: list[dict[str, str]] = []
+    seen: set[str] = set()
     interface = ""
     for line in output.splitlines():
         if line and not line[0].isspace():
             interface = line.split(":", 1)[0].strip()
             continue
         match = re.search(
-            r"\binet (\d+\.\d+\.\d+\.\d+) netmask (0x[0-9a-fA-F]+)", line
+            r"\binet (\d+\.\d+\.\d+\.\d+) netmask "
+            r"(0x[0-9a-fA-F]+|\d+\.\d+\.\d+\.\d+)",
+            line,
         )
         if not match:
             continue
         try:
             address = ipaddress.ip_address(match.group(1))
-            mask = ipaddress.IPv4Address(int(match.group(2), 16))
+            raw_mask = match.group(2)
+            if raw_mask.startswith("0x"):
+                mask = ipaddress.IPv4Address(int(raw_mask, 16))
+            else:
+                mask = ipaddress.IPv4Address(raw_mask)
             network = ipaddress.IPv4Network(f"{address}/{mask}", strict=False)
         except ValueError:
             continue
-        if address.is_loopback or address.is_link_local or not address.is_private:
-            continue
-        key = str(network)
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append({
-            "name": interface,
-            "ip": str(address),
-            "netmask": str(mask),
-            "cidr": str(network),
-        })
+        _append_network(result, seen, interface, address, network)
+    return result
+
+
+def _merge_networks(*groups: list[dict[str, str]]) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group:
+            try:
+                address = ipaddress.ip_address(item["ip"])
+                network = ipaddress.IPv4Network(item["cidr"], strict=False)
+            except (KeyError, ValueError):
+                continue
+            _append_network(result, seen, item.get("name", ""), address, network)
+    return result
+
+
+def local_networks() -> list[dict[str, str]]:
+    """Return active private IPv4 interface networks.
+
+    Linux uses ``ip -4 -o addr show`` and falls back to ``ifconfig``; macOS
+    uses ``ifconfig``.  Each entry is ``{"name", "ip", "netmask", "cidr"}``.
+    This is the list the scan picker offers and the list used to decide whether
+    a camera is local.
+    """
+    ip_output = ""
+    ip_cmd = shutil.which("ip")
+    if ip_cmd:
+        try:
+            ip_output = subprocess.run(
+                [ip_cmd, "-4", "-o", "addr", "show"],
+                capture_output=True, text=True, timeout=3,
+            ).stdout
+        except Exception:
+            ip_output = ""
+
+    ifconfig_output = ""
+    try:
+        ifconfig_output = subprocess.run(
+            ["ifconfig"], capture_output=True, text=True, timeout=3
+        ).stdout
+    except Exception:
+        ifconfig_output = ""
+
+    result = _merge_networks(
+        _networks_from_ip_addr(ip_output),
+        _networks_from_ifconfig(ifconfig_output),
+    )
 
     if not result:
         try:
             address = ipaddress.ip_address(lan_ip())
             if address.is_private and not address.is_loopback:
-                network = ipaddress.ip_network(f"{address}/24", strict=False)
-                result.append({
-                    "name": "",
-                    "ip": str(address),
-                    "netmask": "255.255.255.0",
-                    "cidr": str(network),
-                })
+                network = ipaddress.IPv4Network(f"{address}/24", strict=False)
+                _append_network(result, set(), "", address, network)
         except ValueError:
             pass
     return sorted(result, key=lambda item: (item["cidr"], item["name"]))

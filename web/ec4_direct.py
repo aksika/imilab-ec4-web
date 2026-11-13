@@ -10,6 +10,7 @@ import collections
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -194,7 +195,7 @@ class DirectCapture:
         env["EC4_RELAY_URL"] = relay
         env["EC4_RELAY_PING_EARLY"] = "1"
         env["EC4_IOT_ID"] = iot_id
-        log_path = "/tmp/ec4_direct_viewer.log"
+        log_path = os.path.join(tempfile.gettempdir(), "ec4_direct_viewer.log")
         try:
             fh = open(log_path, "ab", buffering=0)
         except Exception:
