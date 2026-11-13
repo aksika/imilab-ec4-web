@@ -161,6 +161,7 @@
   <script>
     const $ = (id) => document.getElementById(id);
     let batteryByCamera = {};
+    let configuredLoadGeneration = 0;
     function show(text, cls) {
       const el = $("status");
       el.textContent = text;
@@ -220,12 +221,14 @@
     }
     async function loadConfiguredCameras() {
       const list = $("configured-list");
-      list.textContent = "";
+      const generation = ++configuredLoadGeneration;
       try {
         const r = await fetch("/api/cameras", {cache: "no-store"});
         const data = await r.json();
+        if (generation !== configuredLoadGeneration) return;
         if (!r.ok || data.ok === false) throw new Error(data.error || "camera list failed");
         const cameras = data.cameras || [];
+        list.textContent = "";
         if (!cameras.length) {
           const empty = document.createElement("div");
           empty.className = "scan-meta";
@@ -284,6 +287,8 @@
           list.appendChild(row);
         }
       } catch (err) {
+        if (generation !== configuredLoadGeneration) return;
+        list.textContent = "";
         const failed = document.createElement("div");
         failed.className = "scan-meta";
         failed.textContent = err.message || "Could not read the local camera list.";
