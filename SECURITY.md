@@ -15,7 +15,7 @@ in the repository.
 
 The repository `.gitignore` excludes local config, caches, logs, captures, and
 media.  The helper stores runtime state outside the repository in `~/.ec4/`
-with mode `0600`; the password is in the macOS Keychain.
+with mode `0600`; the password is in the operating system credential store.
 
 ## Reporting
 

@@ -1,4 +1,4 @@
 #!/bin/zsh
-# Double-click to start the pure-Mac web viewer.  No emulator or Android app.
+# Double-click to start the local web viewer.
 cd "$(dirname "$0")"
 exec ./run_web.sh "$@"
