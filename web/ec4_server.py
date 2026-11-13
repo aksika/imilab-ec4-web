@@ -3,7 +3,8 @@
 
 Open http://127.0.0.1:8765/ on the Mac.  The direct path opens the camera with
 the private relay viewer, receives RTP on the Mac, and streams browser-friendly
-H.264 fMP4.  A Settings page provides a normal Imilab login form; credentials
+H.264 fMP4 or an H.265 passthrough.  A Settings page provides a normal Imilab
+login form; credentials
 live in the macOS Keychain, never in a cookie.
 
 Run with ../run_web.sh (or double-click ../EC4 Web.command).
@@ -77,15 +78,18 @@ class AppState:
         return {"ok": True, "cameras": cameras, "active": active}
 
     # -- select -------------------------------------------------------------
-    def select(self, name: str, timeout: float = 90.0) -> dict[str, Any]:
+    def select(
+        self, name: str, timeout: float = 90.0, codec: str = "h264"
+    ) -> dict[str, Any]:
         name = name.strip()
         if not name:
             raise CaptureError("camera name is required")
         with self.select_lock:
-            self.log(f"selecting camera {name} (direct Mac path)")
-            st = self.capture.select(name, timeout=timeout)
+            self.log(f"selecting camera {name} (direct Mac path, {codec})")
+            st = self.capture.select(name, timeout=timeout, codec=codec)
             self.log(
                 f"{name} live (direct): {st.get('width')}x{st.get('height')} "
+                f"codec={st.get('codec')} "
                 f"rtp={((st.get('session') or {}).get('rtp'))} "
                 f"keyframes={((st.get('session') or {}).get('keyframes'))}"
             )
@@ -126,7 +130,9 @@ class AppState:
             "short": stats.get("short", "direct"),
             "width": stats.get("width", 0),
             "height": stats.get("height", 0),
-            "codec": MSE_CODEC,
+            "codec": stats.get("codec_string") or MSE_CODEC,
+            "codec_name": stats.get("codec", "h264"),
+            "passthrough": bool(stats.get("passthrough", False)),
             "stream": "/stream/" + urllib.parse.quote(str(inst), safe=""),
         }
 
@@ -392,8 +398,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/select":
             body = self._read_json()
             name = str(body.get("name", "")).strip()
+            codec = str(body.get("codec", "h264")).strip().lower()
+            if codec not in ("h264", "h265"):
+                self._json({"ok": False, "error": "unsupported codec"}, 400)
+                return
             try:
-                result = STATE.select(name)
+                result = STATE.select(name, codec=codec)
                 self._json(result)
             except Exception as exc:
                 STATE.log(f"select failed: {exc}")
@@ -432,7 +442,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Transfer-Encoding", "chunked")
         self.send_header("Cache-Control", "no-store")
-        self.send_header("X-EC4-Codec", MSE_CODEC)
+        self.send_header(
+            "X-EC4-Codec",
+            encoder.stats().get("codec_string") or MSE_CODEC,
+        )
         self.end_headers()
         STATE.log(f"browser stream connected ({encoder.stats()['short']})")
         misses = 0

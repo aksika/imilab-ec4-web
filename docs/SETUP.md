@@ -4,7 +4,9 @@
 
 * macOS
 * Python 3.10+
-* `ffmpeg` with `libx264` (`brew install ffmpeg`)
+* `ffmpeg` with `libx264` for the H.264 path (`brew install ffmpeg`); the
+  H.265 passthrough mode only needs ffmpeg’s built-in HEVC muxer
+* A browser with HEVC support in Media Source Extensions for H.265 passthrough
 * Network access to the camera and hub
 
 The launcher creates `.venv` and installs:
@@ -66,6 +68,14 @@ Open <http://127.0.0.1:8765/>.  Sign in once at `/settings` with the Imilab
 account password.  The helper refreshes the cloud credentials and stores the
 password in Keychain.
 
+The top-bar codec selector applies on the next **Start**:
+
+* **Auto codec** chooses H.265 passthrough when the browser reports HEVC
+  support in Media Source Extensions, otherwise H.264.
+* **H.264** re-encodes with libx264 and caps the stream at 1280×720.
+* **H.265 passthrough** copies the camera’s HEVC bitstream without conversion
+  or scaling.  The browser must support HEVC in MSE.
+
 ## 4. Add and remove cameras
 
 Open `/settings` → **Add a camera**:
@@ -122,5 +132,7 @@ camera still starts normally.
   interface, or remove it under **Settings → Your cameras**.
 * Cloud list or login failures — run `python tools/imi_login.py --status`, then
   sign in through `/settings`.
+* H.265 tile stays black or reports a codec error — the browser/OS lacks HEVC
+  support in Media Source Extensions. Choose **Auto codec** or **H.264**.
 * Grey/purple blocks — ensure ffmpeg is not using `-fflags nobuffer`.
 * Port already in use — set `EC4_PORT=8766 ./run_web.sh`.

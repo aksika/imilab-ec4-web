@@ -27,6 +27,7 @@ const state = {
   objectUrl: null,
   retryTimer: null,
   codec: "",
+  codecPref: localStorage.getItem("ec4.codec") || "auto",
   mode: localStorage.getItem("ec4.mode") || "grid",
   status: null,
   pollTimer: null,
@@ -74,6 +75,60 @@ function setStreamState(next) {
   state.streamState = next;
   updateMeta();
   updateControls();
+}
+
+/* ---------------------------------------------------------------- codecs */
+const HEVC_MSE_TYPES = [
+  'video/mp4; codecs="hvc1.1.6.L93"',
+  'video/mp4; codecs="hvc1.1.6.L120"',
+  'video/mp4; codecs="hvc1.1.6.L123"',
+  'video/mp4; codecs="hvc1.1.6.L150"',
+  'video/mp4; codecs="hvc1.1.6.L153"',
+  'video/mp4; codecs="hvc1.1.6.L93.B0"',
+  'video/mp4; codecs="hvc1.1.6.L120.B0"',
+  'video/mp4; codecs="hev1.1.6.L120.B0"',
+];
+let hevcSupport = null;
+
+function hevcMseSupported() {
+  if (hevcSupport !== null) return hevcSupport;
+  try {
+    hevcSupport = typeof MediaSource !== "undefined"
+      && typeof MediaSource.isTypeSupported === "function"
+      && HEVC_MSE_TYPES.some((type) => MediaSource.isTypeSupported(type));
+  } catch (_) {
+    hevcSupport = false;
+  }
+  return hevcSupport;
+}
+
+function resolveCodec() {
+  if (state.codecPref === "h264") return "h264";
+  if (state.codecPref === "h265") {
+    return hevcMseSupported() ? "h265" : "h264";
+  }
+  return hevcMseSupported() ? "h265" : "h264";
+}
+
+function initCodecSelect() {
+  const select = $("#codec-select");
+  if (!select) return;
+  if (!["auto", "h264", "h265"].includes(state.codecPref)) {
+    state.codecPref = "auto";
+    localStorage.setItem("ec4.codec", "auto");
+  }
+  const supported = hevcMseSupported();
+  if (!supported && state.codecPref === "h265") {
+    state.codecPref = "auto";
+    localStorage.setItem("ec4.codec", "auto");
+    showToast("H.265 is not supported here; using Auto/H.264", true);
+  }
+  const h265 = select.querySelector('option[value="h265"]');
+  if (h265) {
+    h265.disabled = !supported;
+    h265.textContent = supported ? "H.265 passthrough" : "H.265 (not supported)";
+  }
+  select.value = state.codecPref;
 }
 
 /* ---------------------------------------------------------------- cameras */
@@ -295,17 +350,23 @@ function updateMeta() {
       if (state.streamState === "live") {
         label = "LIVE";
         cls = "badge live";
-        if (state.streamInfo) {
+        if (player.videoWidth && player.videoHeight) {
+          meta = `${player.videoWidth}×${player.videoHeight}`;
+        } else if (state.streamInfo) {
           const w = state.streamInfo.width;
           const h = state.streamInfo.height;
           if (w && h) meta = `${w}×${h}`;
         }
-        if (state.status && state.status.width && state.status.height) {
+        if (!meta && state.status && state.status.width && state.status.height) {
           meta = `${state.status.width}×${state.status.height}`;
         }
         if (state.status && state.status.instances) {
           const inst = state.status.instances.find((i) => i.inst === state.inst);
           if (inst && inst.fps > 0.1) meta += `${meta ? " · " : ""}${inst.fps.toFixed(0)} fps`;
+        }
+        if (state.streamInfo && state.streamInfo.codec_name) {
+          const label = state.streamInfo.codec_name === "h265" ? "H.265" : "H.264";
+          meta += `${meta ? " · " : ""}${label}`;
         }
       } else if (state.streamState === "starting") {
         label = "STARTING";
@@ -363,7 +424,7 @@ async function selectCamera(name) {
   try {
     const data = await api("/api/select", {
       method: "POST",
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, codec: resolveCodec() }),
     });
     state.inst = data.inst;
     state.streamInfo = data;
@@ -505,8 +566,19 @@ function parseFrames(gen) {
 
 function handleFrame(payload) {
   if (!state.sb) {
-    const codec = parseAvcCodec(payload) || state.codec || 'video/mp4; codecs="avc1.4D4028"';
-    const source = codec.startsWith("avc1.") ? `video/mp4; codecs="${codec}"` : 'video/mp4; codecs="avc1.4D4028"';
+    const codec = parseVideoCodec(payload) || state.codec || "avc1.42C028";
+    const known = codec.startsWith("avc1.")
+      || codec.startsWith("hvc1.")
+      || codec.startsWith("hev1.");
+    let source = known
+      ? `video/mp4; codecs="${codec}"`
+      : 'video/mp4; codecs="avc1.42C028"';
+    if (!MediaSource.isTypeSupported(source) && codec.startsWith("hvc1.")) {
+      // Some browsers reject constraint bytes but accept the base profile.
+      const base = codec.split(".").slice(0, 4).join(".");
+      const alternate = `video/mp4; codecs="${base}"`;
+      if (MediaSource.isTypeSupported(alternate)) source = alternate;
+    }
     if (!MediaSource.isTypeSupported(source)) {
       showToast(`Browser cannot decode ${source}`, true);
       return;
@@ -621,6 +693,81 @@ function parseAvcCodec(init) {
   } catch (_) {
     return null;
   }
+}
+
+function parseHevcCodec(init) {
+  try {
+    const dv = new DataView(init.buffer, init.byteOffset, init.byteLength);
+    let found = null;
+    const containers = new Set([
+      "moov", "trak", "mdia", "minf", "stbl", "stsd", "hvc1", "hev1",
+      "edts", "dinf", "mvex",
+    ]);
+    const walk = (start, end) => {
+      let off = start;
+      while (off + 8 <= end) {
+        let size = dv.getUint32(off);
+        const type = String.fromCharCode(init[off + 4], init[off + 5], init[off + 6], init[off + 7]);
+        let head = 8;
+        if (size === 1) {
+          if (off + 16 > end) break;
+          size = Number(dv.getBigUint64(off + 8));
+          head = 16;
+        }
+        if (size < head || off + size > end) break;
+        const pStart = off + head;
+        const pEnd = off + size;
+        if (type === "hvcC") {
+          if (pStart + 13 <= pEnd) {
+            const b1 = init[pStart + 1];
+            const profileSpace = (b1 >> 6) & 3;
+            const tierFlag = (b1 >> 5) & 1;
+            const profileIdc = b1 & 0x1f;
+            const compat = (
+              (init[pStart + 2] << 24)
+              | (init[pStart + 3] << 16)
+              | (init[pStart + 4] << 8)
+              | init[pStart + 5]
+            ) >>> 0;
+            let reversed = 0;
+            for (let i = 0; i < 32; i++) {
+              reversed = ((reversed << 1) | ((compat >>> i) & 1)) >>> 0;
+            }
+            let compatHex = reversed.toString(16).toUpperCase().replace(/^0+/, "");
+            if (!compatHex) compatHex = "0";
+            const constraints = [];
+            for (let i = 0; i < 6; i++) constraints.push(init[pStart + 6 + i]);
+            let last = constraints.length;
+            while (last > 0 && constraints[last - 1] === 0) last--;
+            const constraintText = constraints.slice(0, last)
+              .map((v) => "." + v.toString(16).toUpperCase().padStart(2, "0"))
+              .join("");
+            const space = ["", "A", "B", "C"][profileSpace];
+            const level = init[pStart + 12];
+            found = "hvc1." + space + profileIdc + "." + compatHex + "."
+              + (tierFlag ? "H" : "L") + level + constraintText;
+          }
+          return;
+        }
+        if (containers.has(type)) {
+          let child = pStart;
+          if (type === "stsd") child += 8;
+          if (type === "hvc1" || type === "hev1") child += 78;
+          walk(child, pEnd);
+          if (found) return;
+        }
+        off += size;
+      }
+    };
+    walk(0, init.length);
+    return found;
+  } catch (_) {
+    return null;
+  }
+}
+
+function parseVideoCodec(init) {
+  return parseAvcCodec(init) || parseHevcCodec(init);
 }
 
 /* ---------------------------------------------------------------- actions */
@@ -778,6 +925,7 @@ function autoCamera() {
 
 async function init() {
   setMode(state.mode);
+  initCodecSelect();
   $("#mode-grid").addEventListener("click", () => setMode("grid"));
   $("#mode-single").addEventListener("click", () => setMode("single"));
   $("#btn-refresh").addEventListener("click", async () => {
@@ -792,12 +940,28 @@ async function init() {
   });
   $("#btn-start").addEventListener("click", startSelected);
   $("#btn-stop").addEventListener("click", stopAll);
+  $("#codec-select").addEventListener("change", (event) => {
+    const value = event.target.value;
+    if (value === "h265" && !hevcMseSupported()) {
+      event.target.value = "auto";
+      state.codecPref = "auto";
+      localStorage.setItem("ec4.codec", "auto");
+      showToast("H.265 is not supported by this browser", true);
+      return;
+    }
+    state.codecPref = value;
+    localStorage.setItem("ec4.codec", value);
+    if (["starting", "live", "reconnecting"].includes(state.streamState)) {
+      showToast("Codec changes apply after Stop and Start", true);
+    }
+  });
   player.addEventListener("playing", () => {
     if (state.activeName) setStreamState("live");
   });
   player.addEventListener("waiting", () => {
     if (state.streamState === "live") setConn("Buffering…", "");
   });
+  player.addEventListener("loadedmetadata", updateMeta);
 
   await loadCameras(false);
   if (!state.selectedName) state.selectedName = autoCamera();

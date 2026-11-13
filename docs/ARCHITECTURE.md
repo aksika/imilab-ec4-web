@@ -7,14 +7,15 @@ the Mac negotiates a P2P/ICE session and receives RTP directly over the LAN.
 ```text
 browser (MSE)
      ^
-     | H.264 fragmented MP4
+     | H.264 or H.265 fragmented MP4
      |
 web/ec4_server.py  <-->  DirectCapture
                              |
                              +--> private relay viewer (bootstrap)
                              +--> cloud signal / ICE negotiation
                              +--> LAN RTP receiver
-                             +--> ffmpeg H.265 -> H.264
+                             +--> ffmpeg H.265 -> H.264 transcode
+                                  or H.265 copy (passthrough)
 ```
 
 ## Cold start vs media

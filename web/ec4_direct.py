@@ -41,6 +41,7 @@ class DirectCapture:
         self.viewer: subprocess.Popen | None = None
         self.connected = False
         self.mode = "direct"
+        self.codec = "h264"
         self.session_data: dict | None = None
         self.first_event = threading.Event()
         self.params = b""
@@ -90,7 +91,9 @@ class DirectCapture:
                 self.log(f"{name}: {reason}; reconnecting P2P")
                 self._next_reconnect = time.time() + self._reconnect_delay
                 try:
-                    self.select(name, force=True, expect_generation=gen)
+                    self.select(
+                        name, force=True, expect_generation=gen, codec=self.codec
+                    )
                     self._reconnect_delay = 15.0
                     self._next_reconnect = 0.0
                 except Exception as exc:
@@ -140,8 +143,10 @@ class DirectCapture:
                     pass
             time.sleep(0.03)
 
-    def _attach_encoder(self) -> None:
-        encoder = Encoder("direct", self.params, 1280, 720, log=self.log)
+    def _attach_encoder(self, codec: str = "h264") -> None:
+        encoder = Encoder(
+            "direct", self.params, 1280, 720, log=self.log, codec=codec
+        )
         encoder.feed(self.first_idr)
         self.encoder = encoder
         with self.feed_lock:
@@ -216,10 +221,14 @@ class DirectCapture:
         timeout: float = 90.0,
         force: bool = False,
         expect_generation: int | None = None,
+        codec: str = "h264",
     ) -> dict:
         name = name.strip()
         if not name:
             raise CaptureError("camera name is required")
+        codec = (codec or "h264").strip().lower()
+        if codec not in ("h264", "h265"):
+            raise CaptureError(f"unsupported codec: {codec}")
         camera_ids = ec4_config.camera_ids()
         if name not in camera_ids:
             raise CaptureError("camera is not configured")
@@ -240,8 +249,10 @@ class DirectCapture:
                 and self.selected_camera == name
                 and self.encoder is not None
                 and not self.encoder.closed
+                and self.codec == codec
             ):
                 return self.status()
+            self.codec = codec
             self._generation += 1
             self._stop_stream()
             iot_id = camera_ids[name]
@@ -286,7 +297,7 @@ class DirectCapture:
                         "no keyframe from camera "
                         f"(rtp={getattr(r, 'rtp', 0)}, checks={getattr(r, 'checks_answered', 0)})"
                     )
-                self._attach_encoder()
+                self._attach_encoder(codec)
                 self.session_data = creds
                 self.log(
                     f"DIRECT {name} live: {self.encoder.stats().get('width', 0)}x"
@@ -302,8 +313,10 @@ class DirectCapture:
                     self.session_data = None
                 raise
 
-    def switch(self, name: str, timeout: float = 30.0) -> dict:
-        return self.select(name, timeout)
+    def switch(
+        self, name: str, timeout: float = 30.0, codec: str = "h264"
+    ) -> dict:
+        return self.select(name, timeout, codec=codec)
 
     def stop(self) -> None:
         with self.lock:

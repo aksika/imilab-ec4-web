@@ -3,7 +3,8 @@
 Low-latency local viewer for IMILAB EC4 cameras.  The media path is entirely
 on the Mac and on the LAN: the Mac opens the camera through the private relay,
 negotiates the P2P/ICE session, receives RTP directly from the camera, and
-serves H.264 fragmented MP4 to the browser through Media Source Extensions.
+serves fragmented MP4 to the browser through Media Source Extensions.  The
+output is H.264 by default, or H.265 passthrough when the browser supports HEVC.
 
 > **Unofficial project.** Not affiliated with or endorsed by IMILAB. Use only
 > with cameras and accounts you own. The helper talks to private/undocumented
@@ -21,7 +22,7 @@ does not go through the cloud relay.
 |---|---|
 | `web/ec4_server.py` | local HTTP server, camera picker, `/stream/direct` |
 | `web/ec4_direct.py` | pure-Mac capture backend (relay viewer + RTP + ffmpeg) |
-| `web/ec4_encoder.py` | ffmpeg H.265 → H.264 fMP4 encoder |
+| `web/ec4_encoder.py` | ffmpeg H.264 encoder or H.265 passthrough to fMP4 |
 | `web/ec4_rtp.py` | RTP receiver, keyframe assembly, H.265 access units |
 | `web/static/` | browser UI (MSE player, camera grid, settings) |
 | `tools/direct_signal.py` | stream query, relay trigger, signal/ICE negotiation |
@@ -83,7 +84,9 @@ The Imilab password is stored in the **macOS Keychain** (service
 
 * macOS
 * Python 3.10+
-* `ffmpeg` with `libx264` (`brew install ffmpeg`)
+* `ffmpeg` with `libx264` (`brew install ffmpeg`); H.265 passthrough only needs
+  ffmpeg’s built-in HEVC muxer
+* A browser with HEVC support in Media Source Extensions for H.265 passthrough
 * Local network access to the camera and hub
 
 The launcher creates `.venv` and installs:
@@ -109,6 +112,18 @@ Open <http://127.0.0.1:8765/>.  Camera names come from `cameras` in
 The viewer starts **off**.  Pick a camera tile or press **Start**; **Stop**
 tears down the relay viewer, P2P receiver, and encoder.  Opening or reloading
 the page does not start a camera by itself.
+
+The top-bar codec selector controls the next start:
+
+* **Auto codec** — uses H.265 passthrough when the browser’s Media Source
+  Extensions reports HEVC support, otherwise H.264.
+* **H.264** — decodes and re-encodes with libx264, capped at 1280×720.
+* **H.265 passthrough** — remuxes the camera’s HEVC bitstream without
+  re-encoding or scaling; the browser must support HEVC in MSE.
+
+Changing the selector while a camera is live applies after **Stop** and
+**Start**.  If the browser cannot decode the resulting codec, the tile reports
+the MSE error instead of silently switching.
 
 Sign in once at <http://127.0.0.1:8765/settings> with the Imilab account
 password.  This populates the Keychain and creates the Alibaba IoT credential
@@ -159,7 +174,7 @@ camera --LAN P2P--> Mac relay viewer
                         +--> signal/ICE negotiation
                         +--> RTP (AES keyframe fragments)
                         +--> H.265 access-unit assembly
-                        +--> ffmpeg (H.264 fMP4)
+                        +--> ffmpeg (H.264 transcode or H.265 copy)
                         +--> browser MSE
 ```
 
@@ -172,6 +187,8 @@ Do not add ffmpeg's `-fflags nobuffer` to the input.  With
 `-use_wallclock_as_timestamps 1` it drops HEVC reference frames and produces
 grey/purple macroblocks, often at the bottom of the picture.  The encoder also
 loops on `stdin.write()` so a large keyframe is never partially written.
+H.265 passthrough does not scale or re-encode, so it preserves the camera’s
+native resolution and uses much less CPU than the H.264 path.
 
 ## Security
 
